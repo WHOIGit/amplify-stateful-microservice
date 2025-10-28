@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  features:
+    build:
+      context: .
+      dockerfile: services/features/Dockerfile
+    ports:
+      - "8001:8000"
+    environment:
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://localhost:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - S3_BUCKET=${S3_BUCKET:-ifcb-features}
+      - S3_DATASETS_PREFIX=${S3_DATASETS_PREFIX:-datasets}
+      - S3_RESULTS_PREFIX=${S3_RESULTS_PREFIX:-results}
+      - MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS:-4}
+    restart: unless-stopped
+
+  # Future services can be added here:
+  # classifier:
+  #   build:
+  #     context: .
+  #     dockerfile: services/classifier/Dockerfile
+  #   ports:
+  #     - "8002:8000"
+  #   environment:
+  #     - S3_ENDPOINT_URL=${S3_ENDPOINT_URL}
+  #     - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+  #     - S3_SECRET_KEY=${S3_SECRET_KEY}
+  #     - S3_BUCKET=${S3_BUCKET}
+  #     - MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS:-4}
+
+  # segmentation:
+  #   build:
+  #     context: .
+  #     dockerfile: services/segmentation/Dockerfile
+  #   ports:
+  #     - "8003:8000"
+  #   environment:
+  #     - S3_ENDPOINT_URL=${S3_ENDPOINT_URL}
+  #     - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+  #     - S3_SECRET_KEY=${S3_SECRET_KEY}
+  #     - S3_BUCKET=${S3_BUCKET}
+  #     - MAX_CONCURRENT_JOBS=${MAX_CONCURRENT_JOBS:-4}

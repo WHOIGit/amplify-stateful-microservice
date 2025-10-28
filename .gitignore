@@ -28,7 +28,6 @@ env/
 
 # uv
 .venv
-uv.lock
 
 # IDEs
 .vscode/
