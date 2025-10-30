@@ -165,8 +165,8 @@ def create_app(processor: BaseProcessor) -> FastAPI:
                         parameters={},
                         callback_url=None,
                         idempotency_key=None,
+                        job_id_override=request.job_id,
                     )
-                    job_store._jobs[request.job_id].job_id = request.job_id  # Override with existing ID
 
                 logger.info(f"Bin ready for processing: {request.job_id}")
 

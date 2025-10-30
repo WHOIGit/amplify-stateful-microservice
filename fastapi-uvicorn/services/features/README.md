@@ -10,17 +10,30 @@ Microservice for extracting morphological features from IFCB data using the [ifc
 
 ## Running the service
 
-### With Docker
+### With Docker Compose (Recommended)
+
+```bash
+cd ../..  # Go to fastapi-uvicorn directory
+docker-compose up features
+```
+
+### With Docker Run
 
 ```bash
 # Build
-docker build -t ifcb-features-service .
+docker build -t ifcb-features-service -f services/features/Dockerfile .
 
-# Run
+# Run with .env file
 docker run -p 8000:8000 \
-  -e AWS_ACCESS_KEY_ID=your-key \
-  -e AWS_SECRET_ACCESS_KEY=your-secret \
-  -e S3_BUCKET=your-bucket \
+  --env-file ../../.env \
+  ifcb-features-service
+
+# Or pass environment variables manually
+docker run -p 8000:8000 \
+  -e S3_ENDPOINT_URL=http://your-s3-server:9000 \
+  -e S3_ACCESS_KEY=your-key \
+  -e S3_SECRET_KEY=your-secret \
+  -e S3_BUCKET=ifcb-features \
   ifcb-features-service
 ```
 

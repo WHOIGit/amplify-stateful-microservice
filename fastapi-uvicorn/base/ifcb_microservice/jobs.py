@@ -31,6 +31,7 @@ class JobStore:
         parameters: Optional[Dict] = None,
         callback_url: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        job_id_override: Optional[str] = None,
     ) -> str:
         """
         Create a new job.
@@ -41,6 +42,7 @@ class JobStore:
             parameters: Processing parameters
             callback_url: Webhook URL for completion
             idempotency_key: Optional idempotency key
+            job_id_override: Use an existing job_id (e.g., ingest-created)
 
         Returns:
             Job ID
@@ -48,13 +50,16 @@ class JobStore:
         # Check idempotency
         if idempotency_key:
             with self._lock:
-                for job_id, job in self._jobs.items():
-                    metadata = self._upload_metadata.get(job_id, {})
+                for existing_id, job in self._jobs.items():
+                    metadata = self._upload_metadata.get(existing_id, {})
                     if metadata.get('idempotency_key') == idempotency_key:
-                        logger.info(f"Returning existing job {job_id} for idempotency key {idempotency_key}")
-                        return job_id
+                        logger.info(f"Returning existing job {existing_id} for idempotency key {idempotency_key}")
+                        return existing_id
 
-        job_id = str(uuid.uuid4())
+        if job_id_override:
+            job_id = job_id_override
+        else:
+            job_id = str(uuid.uuid4())
         now = datetime.utcnow()
 
         job_status = JobStatus(
@@ -69,14 +74,19 @@ class JobStore:
         )
 
         with self._lock:
+            if job_id in self._jobs:
+                raise ValueError(f"Job {job_id} already exists")
+
             self._jobs[job_id] = job_status
-            self._upload_metadata[job_id] = {
+            existing_metadata = self._upload_metadata.get(job_id, {}).copy()
+            existing_metadata.update({
                 'manifest_uri': manifest_uri,
                 'manifest_data': manifest_data,
                 'parameters': parameters or {},
                 'callback_url': callback_url,
                 'idempotency_key': idempotency_key,
-            }
+            })
+            self._upload_metadata[job_id] = existing_metadata
 
         logger.info(f"Created job {job_id}")
         return job_id
