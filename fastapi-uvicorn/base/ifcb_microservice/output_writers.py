@@ -245,6 +245,7 @@ class ResultsWriter:
         self.features_writer.add_bin_features(bin_id, features_df)
 
         # Add masks
+        total_rois_in_bin = len(features_df)
         for i, mask_bytes in enumerate(masks):
             roi_number = int(features_df.iloc[i]['roi_number'])
             self.masks_writer.add_mask(bin_id, roi_number, mask_bytes)

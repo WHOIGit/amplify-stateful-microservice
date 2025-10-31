@@ -6,7 +6,7 @@ import json
 import tempfile
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable, Any
 import logging
 
 import pandas as pd
@@ -60,23 +60,79 @@ class JobProcessor:
             # Get manifest
             manifest = await self._load_manifest(metadata)
 
+            total_bins = len(manifest.get('bins', []))
+
+            def make_progress_emitter(current_bin: int, bin_id: str):
+                def emit(partial: Dict):
+                    stage = partial.get("stage", "processing")
+                    bin_percent = partial.get("percent")
+
+                    job_percent = None
+                    if total_bins:
+                        if bin_percent is not None:
+                            job_percent = ((current_bin - 1) + (bin_percent / 100.0)) / total_bins * 100.0
+                        else:
+                            job_percent = ((current_bin - 1) / total_bins) * 100.0
+
+                    detail = {
+                        "bin_id": bin_id,
+                        "bin_index": current_bin,
+                        "bin_total": total_bins,
+                    }
+
+                    if bin_percent is not None:
+                        detail["bin_percent"] = bin_percent
+
+                    for key, value in partial.items():
+                        if key not in {"stage", "percent"}:
+                            detail[key] = value
+
+                    payload = {
+                        "stage": stage,
+                        "percent": job_percent,
+                        "detail": detail,
+                    }
+
+                    job_store.update_job(
+                        job_id=job_id,
+                        progress=payload,
+                    )
+                return emit
+
             # Initialize results writer
             results_writer = ResultsWriter(job_id)
 
             # Process each bin in the manifest
-            for bin_entry in manifest['bins']:
+            for index, bin_entry in enumerate(manifest['bins'], start=1):
                 bin_id = bin_entry['bin_id']
                 file_uris = bin_entry['files']
 
                 logger.info(f"Processing bin {bin_id} with {self.processor.name}")
 
+                emit_progress = make_progress_emitter(index, bin_id)
+                emit_progress({"stage": "download", "message": "start"})
+
                 # Download bin files from S3
                 bin_files = await self._download_bin_files(bin_id, file_uris)
+                emit_progress({"stage": "download", "message": "complete"})
 
                 # Process using the algorithm-specific processor
-                features_df, artifacts = await self._process_bin(bin_id, bin_files)
+                emit_progress({"stage": "processing", "message": "executor_start", "percent": 0.0})
+                features_df, artifacts = await self._process_bin(
+                    bin_id,
+                    bin_files,
+                    progress_callback=emit_progress,
+                )
+                emit_progress(
+                    {
+                        "stage": "processing",
+                        "message": "executor_complete",
+                        "percent": 100.0,
+                        "rois_in_bin": len(features_df),
+                    }
+                )
 
-                # Add to results writer
+                # Add to results writer (no additional progress; handled via emit_progress)
                 results_writer.add_bin_results(bin_id, features_df, artifacts)
 
                 # Clean up temporary files
@@ -103,6 +159,15 @@ class JobProcessor:
                 status="completed",
                 completed_at=datetime.utcnow(),
                 result=job_result,
+                progress={
+                    "stage": "completed",
+                    "percent": 100.0,
+                    "detail": {
+                        "processed_bins": total_bins,
+                        "total_bins": total_bins,
+                        "processed_rois": results['counts']['rois'],
+                    },
+                },
             )
 
             logger.info(f"Job {job_id} completed successfully")
@@ -209,13 +274,19 @@ class JobProcessor:
 
         return bin_files
 
-    async def _process_bin(self, bin_id: str, bin_files: Dict[str, str]) -> tuple[pd.DataFrame, List]:
+    async def _process_bin(
+        self,
+        bin_id: str,
+        bin_files: Dict[str, str],
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> tuple[pd.DataFrame, List]:
         """
         Process a bin using the algorithm-specific processor.
 
         Args:
             bin_id: Bin identifier
             bin_files: Dict mapping extension to file path
+            progress_callback: Optional callback for progress updates
 
         Returns:
             Tuple of (features_df, artifacts_list)
@@ -225,12 +296,20 @@ class JobProcessor:
 
         # Run processor (CPU-bound, so run in executor)
         loop = asyncio.get_event_loop()
-        features_df, artifacts = await loop.run_in_executor(
-            None,
-            self.processor.process_bin,
-            bin_id,
-            bin_paths,
-        )
+        if progress_callback:
+            self.processor.set_progress_callback(progress_callback)
+        else:
+            self.processor.set_progress_callback(None)
+
+        try:
+            features_df, artifacts = await loop.run_in_executor(
+                None,
+                self.processor.process_bin,
+                bin_id,
+                bin_paths,
+            )
+        finally:
+            self.processor.set_progress_callback(None)
 
         # Convert artifacts to bytes if needed
         artifacts_bytes = []

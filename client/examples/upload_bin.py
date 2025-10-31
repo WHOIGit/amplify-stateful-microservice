@@ -1,7 +1,11 @@
-"""Example: Upload local bin files and process them."""
+"""Example: Upload local bin files, track progress, and download results."""
 
+import json
+import time
 from pathlib import Path
+
 from ifcb_client import IFCBClient
+
 
 # Create client (debug=True prints detailed upload progress)
 client = IFCBClient("http://localhost:8000", s3_endpoint_url="", debug=True)
@@ -9,9 +13,9 @@ client = IFCBClient("http://localhost:8000", s3_endpoint_url="", debug=True)
 # Upload bin files from local disk
 bin_id = ""
 file_paths = {
-    '.adc': Path(f""),
-    '.hdr': Path(f""),
-    '.roi': Path(f"")
+    '.adc': Path(""),
+    '.hdr': Path(""),
+    '.roi': Path(""),
 }
 
 print(f"Uploading bin: {bin_id}")
@@ -28,7 +32,53 @@ print(f"✓ Upload complete. Job ID: {job_id}")
 
 # Wait for processing
 print("Processing...")
-result = client.wait_for_job(job_id, poll_interval=5)
+last_progress_snapshot = None
+
+while True:
+    status = client.get_job(job_id)
+    if status.progress:
+        progress = status.progress
+        snapshot = json.dumps(progress, sort_keys=True)
+
+        if snapshot != last_progress_snapshot:
+            last_progress_snapshot = snapshot
+
+            stage = progress.get("stage", "processing")
+            percent = progress.get("percent")
+            detail = progress.get("detail") or {}
+
+            bin_id = detail.get("bin_id")
+            bin_percent = detail.get("bin_percent")
+            message = detail.get("message") or progress.get("message")
+            processed_rois = detail.get("processed_rois")
+            total_rois = detail.get("total_rois")
+
+            line = f"  [{stage}]"
+            if percent is not None:
+                line += f" {percent:.1f}%"
+
+            if bin_id:
+                line += f" (bin {bin_id}"
+                if bin_percent is not None:
+                    line += f" {bin_percent:.1f}%"
+                if detail.get("bin_index") and detail.get("bin_total"):
+                    line += f" {detail['bin_index']}/{detail['bin_total']}"
+                line += ")"
+
+            if processed_rois and total_rois:
+                roi_percent = (processed_rois / total_rois) * 100.0
+                line += f" {processed_rois}/{total_rois} ROIs ({roi_percent:.1f}%)"
+
+            if message:
+                line += f" - {message}"
+
+            print(line)
+
+    if status.status in {"completed", "failed"}:
+        result = status
+        break
+
+    time.sleep(1)
 
 if result.status == "completed":
     print(f"✓ Processing complete!")

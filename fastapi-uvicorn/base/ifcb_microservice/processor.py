@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Tuple, List, Any
+from typing import Dict, Tuple, List, Any, Callable, Optional
 import pandas as pd
 
 
@@ -125,3 +125,32 @@ class BaseProcessor(ABC):
             missing_cols = set(schema.keys()) - set(df.columns)
             if missing_cols:
                 raise ValueError(f"Missing expected columns: {missing_cols}")
+
+    # ==========================================================================
+    # Progress Reporting
+    # ==========================================================================
+
+    def set_progress_callback(self, callback: Optional[Callable[[Dict[str, Any]], None]]) -> None:
+        """
+        Set a progress callback used during processing.
+
+        Args:
+            callback: Callable receiving progress payloads, or None to disable.
+        """
+        self._progress_callback = callback  # type: ignore[attr-defined]
+
+    def report_progress(self, stage: str, **data: Any) -> None:
+        """
+        Report progress for the current processing operation.
+
+        Args:
+            stage: Progress stage identifier
+            **data: Additional metadata for progress payload
+        """
+        callback: Optional[Callable[[Dict[str, Any]], None]] = getattr(self, "_progress_callback", None)
+        if not callback:
+            return
+
+        payload = {"stage": stage}
+        payload.update(data)
+        callback(payload)

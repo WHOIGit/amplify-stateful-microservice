@@ -77,8 +77,20 @@ class FeaturesProcessor(BaseProcessor):
             # Process each ROI image
             features_list = []
             masks_list = []
+            try:
+                total_rois = len(sample.images)
+            except TypeError:
+                total_rois = getattr(sample, "n_rois", None)
+            stride = max(1, total_rois // 20) if total_rois else 1
 
-            for roi_number, image in sample.images.items():
+            self.report_progress(
+                stage="processing",
+                percent=0.0,
+                message="processor_start",
+                total_rois=total_rois,
+            )
+
+            for roi_index, (roi_number, image) in enumerate(sample.images.items(), start=1):
                 try:
                     # compute_features returns (blobs_image, features)
                     # where features is a list of (name, value) tuples
@@ -97,6 +109,27 @@ class FeaturesProcessor(BaseProcessor):
                     # Continue processing other ROIs
                     continue
 
+                emit_update = False
+                if total_rois:
+                    if roi_index % stride == 0 or roi_index == total_rois:
+                        emit_update = True
+                else:
+                    if roi_index % stride == 0:
+                        emit_update = True
+
+                if emit_update:
+                    percent_complete = None
+                    if total_rois:
+                        percent_complete = (roi_index / total_rois) * 100.0
+
+                    self.report_progress(
+                        stage="processing",
+                        percent=percent_complete,
+                        roi_number=roi_number,
+                        processed_rois=roi_index,
+                        total_rois=total_rois,
+                    )
+
             if not features_list:
                 raise ValueError(f"No features extracted from bin {bin_id}")
 
@@ -109,6 +142,14 @@ class FeaturesProcessor(BaseProcessor):
             logger.info(
                 f"Extracted {len(features_df)} features and {len(masks_list)} masks "
                 f"from bin {bin_id}"
+            )
+
+            self.report_progress(
+                stage="processing",
+                percent=100.0,
+                message="processor_complete",
+                total_rois=total_rois,
+                processed_rois=len(features_df),
             )
 
             return features_df, masks_list
