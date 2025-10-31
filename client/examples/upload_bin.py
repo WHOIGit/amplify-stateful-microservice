@@ -4,7 +4,7 @@ from pathlib import Path
 from ifcb_client import IFCBClient
 
 # Create client (debug=True prints detailed upload progress)
-client = IFCBClient("http://localhost:8000", debug=True)
+client = IFCBClient("http://localhost:8000", s3_endpoint_url="", debug=True)
 
 # Upload bin files from local disk
 bin_id = ""
@@ -34,6 +34,15 @@ if result.status == "completed":
     print(f"✓ Processing complete!")
     print(f"  ROIs: {result.result.counts.rois}")
     print(f"  Features: {result.result.features.uris[0]}")
+
+    # Download results from S3 to local disk
+    output_dir = Path("./downloads")
+    downloads = client.download_results(job_id, output_dir, overwrite=True)
+
+    print(f"Downloaded artifacts to {output_dir}:")
+    for category, paths in downloads.items():
+        for path in paths:
+            print(f"  [{category}] {path}")
 else:
     print(f"✗ Processing failed: {result.error}")
 

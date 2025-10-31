@@ -169,6 +169,22 @@ except JobNotFoundError:
 client.close()
 ```
 
+### Downloading Results
+
+```python
+from pathlib import Path
+
+downloads = client.download_results(
+    job_id,
+    output_dir=Path("./ifcb-results") / job_id,
+    overwrite=True,
+)
+
+for category, files in downloads.items():
+    for file_path in files:
+        print(category, file_path)
+```
+
 ## API Reference
 
 ### IFCBClient
@@ -183,6 +199,7 @@ client.close()
 - `start_ingest(bin_id, files)` - Start multipart upload
 - `complete_ingest(job_id, file_id, upload_id, parts)` - Complete upload
 - `upload_bin(bin_id, file_paths)` - Upload and process bin files
+- `download_results(job_id, output_dir, include_features=True, include_masks=True, include_index=True, overwrite=False)` - Fetch artifacts from S3
 
 ### AsyncIFCBClient
 

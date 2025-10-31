@@ -1,9 +1,14 @@
 """Synchronous IFCB client."""
 
 import json
+import os
 import time
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
+
+import boto3
+from botocore.config import Config
+from botocore.exceptions import ClientError
 import httpx
 
 from .models import (
@@ -22,6 +27,7 @@ from .exceptions import (
     APIError,
     NetworkError,
     UploadError,
+    DownloadError,
 )
 from .utils import calculate_part_size, validate_bin_files
 
@@ -46,6 +52,10 @@ class IFCBClient:
         timeout: float = 30.0,
         max_retries: int = 3,
         debug: bool = False,
+        s3_endpoint_url: Optional[str] = None,
+        s3_access_key: Optional[str] = None,
+        s3_secret_key: Optional[str] = None,
+        s3_use_ssl: Optional[bool] = None,
     ):
         """
         Initialize IFCB client.
@@ -55,6 +65,10 @@ class IFCBClient:
             timeout: Request timeout in seconds
             max_retries: Number of retries for failed requests
             debug: Print debug output for each step when True
+            s3_endpoint_url: Optional override for S3 endpoint (defaults to env S3_ENDPOINT_URL)
+            s3_access_key: Optional S3 access key (defaults to env S3_ACCESS_KEY)
+            s3_secret_key: Optional S3 secret key (defaults to env S3_SECRET_KEY)
+            s3_use_ssl: Force HTTPS when connecting to S3 (defaults to env S3_USE_SSL or False)
         """
         self.base_url = base_url.rstrip('/')
         self.client = httpx.Client(
@@ -62,6 +76,15 @@ class IFCBClient:
             transport=httpx.HTTPTransport(retries=max_retries),
         )
         self.debug = debug
+        self._s3_endpoint_url = s3_endpoint_url or os.getenv("S3_ENDPOINT_URL")
+        self._s3_access_key = s3_access_key or os.getenv("S3_ACCESS_KEY")
+        self._s3_secret_key = s3_secret_key or os.getenv("S3_SECRET_KEY")
+        if s3_use_ssl is not None:
+            self._s3_use_ssl = s3_use_ssl
+        else:
+            env_ssl = os.getenv("S3_USE_SSL")
+            self._s3_use_ssl = env_ssl.lower() == "true" if env_ssl else False
+        self._s3_client: Optional[Any] = None
 
     def _debug(self, message: str):
         """Print debug messages when debug mode is enabled."""
@@ -521,3 +544,156 @@ class IFCBClient:
 
         self._debug(f"Upload flow completed for job_id={ingest_response.job_id}")
         return ingest_response.job_id
+
+    # ============================================================================
+    # Results Download
+    # ============================================================================
+
+    def _ensure_s3_client(self):
+        """Create and cache a boto3 S3 client using configured credentials."""
+        if self._s3_client is not None:
+            return self._s3_client
+
+        client_kwargs: Dict[str, Any] = {
+            "config": Config(signature_version="s3v4"),
+        }
+        credentials: Dict[str, Any] = {}
+
+        if self._s3_endpoint_url:
+            client_kwargs["endpoint_url"] = self._s3_endpoint_url
+        if self._s3_use_ssl is not None:
+            client_kwargs["use_ssl"] = self._s3_use_ssl
+        if self._s3_access_key:
+            credentials["aws_access_key_id"] = self._s3_access_key
+        if self._s3_secret_key:
+            credentials["aws_secret_access_key"] = self._s3_secret_key
+
+        self._s3_client = boto3.client("s3", **client_kwargs, **credentials)
+        return self._s3_client
+
+    @staticmethod
+    def _parse_s3_uri(uri: str) -> tuple[str, str]:
+        """Split an s3:// URI into (bucket, key)."""
+        if not uri.startswith("s3://"):
+            raise ValueError(f"Unsupported URI (expected s3://): {uri}")
+        parts = uri[5:].split("/", 1)
+        if len(parts) != 2:
+            raise ValueError(f"Invalid S3 URI: {uri}")
+        return parts[0], parts[1]
+
+    @staticmethod
+    def _relative_key(key: str) -> Path:
+        """
+        Derive a local relative path from an S3 key.
+
+        Drops the leading results/ or datasets/ prefix if present so downloads
+        land under <output>/<job_id>/...
+        """
+        parts = key.split("/", 1)
+        if len(parts) == 2 and parts[0] in {"results", "datasets"}:
+            return Path(parts[1])
+        return Path(key)
+
+    def _download_from_s3(self, uri: str, output_dir: Path, overwrite: bool) -> Path:
+        """Download a single S3 object to the output directory."""
+        bucket, key = self._parse_s3_uri(uri)
+        relative_path = self._relative_key(key)
+        local_path = output_dir / relative_path
+
+        if local_path.exists() and not overwrite:
+            self._debug(f"Skipping existing file {local_path}")
+            return local_path
+
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+
+        s3_client = self._ensure_s3_client()
+        self._debug(f"Downloading {uri} -> {local_path}")
+
+        try:
+            s3_client.download_file(bucket, key, str(local_path))
+        except ClientError as exc:
+            raise DownloadError(f"Failed to download {uri}: {exc}") from exc
+
+        return local_path
+
+    def download_results(
+        self,
+        job_id: str,
+        output_dir: Path | str,
+        include_features: bool = True,
+        include_masks: bool = True,
+        include_index: bool = True,
+        overwrite: bool = False,
+    ) -> Dict[str, List[Path]]:
+        """
+        Download processed job outputs (features, masks, results index) from S3.
+
+        Args:
+            job_id: Completed job identifier.
+            output_dir: Local directory where files will be stored.
+            include_features: Download Parquet feature files.
+            include_masks: Download mask TAR shards and JSON indices.
+            include_index: Download results.json index file.
+            overwrite: Overwrite existing files if they already exist.
+
+        Returns:
+            Dict mapping output categories to lists of downloaded paths.
+        """
+        status = self.get_job(job_id)
+
+        if status.status == "failed":
+            raise JobFailedError(job_id, status.error or "Unknown error")
+        if status.status != "completed" or not status.result:
+            raise ValueError(f"Job {job_id} is not completed (status={status.status})")
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        downloads: Dict[str, List[Path]] = {"features": [], "masks": [], "indices": []}
+        job_bucket: Optional[str] = None
+        job_prefix: Optional[str] = None
+
+        def record_location(uri: str):
+            nonlocal job_bucket, job_prefix
+            bucket, key = self._parse_s3_uri(uri)
+            if job_bucket is None:
+                job_bucket = bucket
+            if job_prefix is None:
+                parts = key.split("/", 2)
+                if len(parts) >= 2:
+                    job_prefix = "/".join(parts[:2])
+
+        if include_features and status.result.features.uris:
+            for uri in status.result.features.uris:
+                record_location(uri)
+                local_path = self._download_from_s3(uri, output_dir, overwrite)
+                downloads["features"].append(local_path)
+
+        if include_masks and status.result.masks.shards:
+            for shard in status.result.masks.shards:
+                record_location(shard.uri)
+                local_tar = self._download_from_s3(shard.uri, output_dir, overwrite)
+                downloads["masks"].append(local_tar)
+
+                record_location(shard.index_uri)
+                local_index = self._download_from_s3(shard.index_uri, output_dir, overwrite)
+                downloads["indices"].append(local_index)
+
+        if include_index:
+            if job_bucket is None or job_prefix is None:
+                if status.result.features.uris:
+                    bucket, key = self._parse_s3_uri(status.result.features.uris[0])
+                elif status.result.masks.shards:
+                    bucket, key = self._parse_s3_uri(status.result.masks.shards[0].uri)
+                else:
+                    raise ValueError("Unable to determine results location; no URIs available")
+                job_bucket = job_bucket or bucket
+                parts = key.split("/", 2)
+                if len(parts) >= 2:
+                    job_prefix = job_prefix or "/".join(parts[:2])
+            results_uri = f"s3://{job_bucket}/{job_prefix}/results.json"
+            local_index = self._download_from_s3(results_uri, output_dir, overwrite)
+            downloads["indices"].append(local_index)
+
+        # Remove empty categories for cleaner return value
+        return {category: paths for category, paths in downloads.items() if paths}

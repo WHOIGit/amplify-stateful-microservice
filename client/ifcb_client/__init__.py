@@ -18,6 +18,7 @@ from .exceptions import (
     UploadError,
     APIError,
     NetworkError,
+    DownloadError,
 )
 
 __version__ = "1.0.0"
@@ -41,4 +42,5 @@ __all__ = [
     "UploadError",
     "APIError",
     "NetworkError",
+    "DownloadError",
 ]

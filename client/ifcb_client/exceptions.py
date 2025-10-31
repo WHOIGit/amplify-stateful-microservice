@@ -34,6 +34,11 @@ class UploadError(IFCBClientError):
     pass
 
 
+class DownloadError(IFCBClientError):
+    """Error during file download."""
+    pass
+
+
 class APIError(IFCBClientError):
     """Generic API error."""
 
