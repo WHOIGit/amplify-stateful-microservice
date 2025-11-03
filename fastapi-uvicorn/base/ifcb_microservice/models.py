@@ -31,10 +31,23 @@ class FileUploadSpec(BaseModel):
     size_bytes: int = Field(..., description="File size in bytes", gt=0)
 
 
+class BinUploadSpec(BaseModel):
+    """Specification for a bin containing multiple files."""
+    bin_id: str = Field(..., description="Unique bin identifier")
+    files: List[FileUploadSpec] = Field(
+        ...,
+        description="List of files to upload for the bin",
+        min_length=1,
+    )
+
+
 class IngestStartRequest(BaseModel):
     """Request to start ingesting a bin (3 files)."""
-    bin_id: str = Field(..., description="Unique bin identifier")
-    files: List[FileUploadSpec] = Field(..., description="List of 3 files to upload", min_length=3, max_length=3)
+    bins: List[BinUploadSpec] = Field(
+        ...,
+        description="List of bins to ingest",
+        min_length=1,
+    )
 
 
 class PartUrl(BaseModel):
@@ -52,11 +65,16 @@ class FileUploadInfo(BaseModel):
     part_urls: List[PartUrl] = Field(..., description="Pre-signed URLs for all parts")
 
 
+class BinUploadInfo(BaseModel):
+    """Upload info for a single bin."""
+    bin_id: str = Field(..., description="Bin identifier")
+    files: List[FileUploadInfo] = Field(..., description="Upload info for each file in the bin")
+
+
 class IngestStartResponse(BaseModel):
     """Response with upload information for all files."""
     job_id: str = Field(..., description="Job ID for this bin")
-    bin_id: str = Field(..., description="Bin identifier")
-    files: List[FileUploadInfo] = Field(..., description="Upload info for each file")
+    bins: List[BinUploadInfo] = Field(..., description="Upload info for each bin")
     expires_at: datetime = Field(..., description="When the pre-signed URLs expire")
 
 
@@ -69,6 +87,7 @@ class CompletedPart(BaseModel):
 class IngestCompleteRequest(BaseModel):
     """Request to complete upload for a single file."""
     job_id: str = Field(..., description="Job ID")
+    bin_id: str = Field(..., description="Bin ID from start response")
     file_id: str = Field(..., description="File ID from start response")
     upload_id: str = Field(..., description="Upload ID from start response")
     parts: List[CompletedPart] = Field(..., description="List of completed parts with ETags")

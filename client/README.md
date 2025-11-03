@@ -106,6 +106,21 @@ job_id = client.upload_bin(
 result = client.wait_for_job(job_id)
 ```
 
+### Uploading All Bins From A Directory
+
+```python
+from pathlib import Path
+
+job_id = client.upload_bins_from_directory(
+    Path("/data/ifcb"),
+    recursive=True,
+    skip_incomplete=False,
+)
+
+print(f"Queued job {job_id} for directory upload")
+result = client.wait_for_job(job_id)
+```
+
 ### Async Usage
 
 ```python
@@ -196,9 +211,11 @@ for category, files in downloads.items():
 - `get_job(job_id)` - Get job status
 - `list_jobs(limit=50)` - List recent jobs
 - `wait_for_job(job_id, poll_interval=5, timeout=3600)` - Poll until complete
-- `start_ingest(bin_id, files)` - Start multipart upload
-- `complete_ingest(job_id, file_id, upload_id, parts)` - Complete upload
+- `start_ingest(bins)` - Start multipart upload for one or more bins
+- `complete_ingest(job_id, bin_id, file_id, upload_id, parts)` - Complete upload for a file within a bin
 - `upload_bin(bin_id, file_paths)` - Upload and process bin files
+- `upload_bins(bins)` - Upload a mapping of bin IDs to local files in one job
+- `upload_bins_from_directory(root, recursive=True, skip_incomplete=False)` - Discover and upload bins under a directory
 - `download_results(job_id, output_dir, include_features=True, include_masks=True, include_index=True, overwrite=False)` - Fetch artifacts from S3
 
 ### AsyncIFCBClient

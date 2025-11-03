@@ -107,13 +107,13 @@ def create_app(processor: BaseProcessor) -> FastAPI:
     )
     async def ingest_start(request: IngestStartRequest):
         """
-        Start ingestion for a bin (initiate multipart uploads).
+        Start ingestion for one or more bins (initiate multipart uploads).
 
         This endpoint:
-        1. Creates a job ID
-        2. Initiates multipart uploads for all 3 files
-        3. Generates pre-signed URLs for each part
-        4. Returns upload instructions to the client
+        1. Creates a job ID shared across the provided bins
+        2. Initiates multipart uploads for each file in every bin
+        3. Generates pre-signed URLs for every part
+        4. Returns upload instructions grouped by bin
 
         The client should then:
         1. Upload each part to its pre-signed URL
@@ -122,7 +122,10 @@ def create_app(processor: BaseProcessor) -> FastAPI:
         """
         try:
             response = ingest_service.start_ingest(request)
-            logger.info(f"Started ingest for bin {request.bin_id}, job {response.job_id}")
+            logger.info(
+                f"Started ingest for job {response.job_id} "
+                f"with {len(response.bins)} bin(s)"
+            )
             return response
         except Exception as e:
             logger.error(f"Failed to start ingest: {e}", exc_info=True)
@@ -140,36 +143,14 @@ def create_app(processor: BaseProcessor) -> FastAPI:
         Call this endpoint for each file after all parts have been uploaded.
         Provide the part numbers and ETags from the S3 upload responses.
 
-        Once all 3 files are completed, the bin is ready for processing.
+        Once all files for a bin are completed, it will be queued automatically.
         """
         try:
             response = ingest_service.complete_ingest(request)
-            logger.info(f"Completed upload for file {request.file_id} in job {request.job_id}")
-
-            # Check if all files for this bin are complete
-            if ingest_service.check_bin_ready(request.job_id):
-                logger.info(f"All files complete for job {request.job_id}, creating manifest entry")
-                # Generate manifest entry
-                manifest_entry = ingest_service.get_bin_manifest_entry(request.job_id)
-
-                # Update job with manifest data
-                manifest_data = {'bins': [manifest_entry]}
-                metadata = job_store.get_job_metadata(request.job_id)
-                if metadata:
-                    metadata['manifest_data'] = manifest_data
-
-                # Create job if not exists
-                if not job_store.get_job(request.job_id):
-                    job_store.create_job(
-                        manifest_data=manifest_data,
-                        parameters={},
-                        callback_url=None,
-                        idempotency_key=None,
-                        job_id_override=request.job_id,
-                    )
-
-                logger.info(f"Bin ready for processing: {request.job_id}")
-
+            logger.info(
+                f"Completed upload for file {request.file_id} "
+                f"in bin {request.bin_id}, job {request.job_id}"
+            )
             return response
         except ValueError as e:
             logger.error(f"Validation error: {e}")

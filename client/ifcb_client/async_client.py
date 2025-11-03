@@ -2,7 +2,7 @@
 
 import asyncio
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any, Iterable
 import httpx
 
 from .models import (
@@ -21,7 +21,7 @@ from .exceptions import (
     NetworkError,
     UploadError,
 )
-from .utils import calculate_part_size, validate_bin_files
+from .utils import calculate_part_size, validate_bin_files, discover_bins
 
 
 class AsyncIFCBClient:
@@ -199,14 +199,13 @@ class AsyncIFCBClient:
 
     async def start_ingest(
         self,
-        bin_id: str,
-        files: List[Dict[str, int]],
+        bins: List[Dict[str, Any]],
     ) -> IngestStartResponse:
-        """Start multipart upload for bin files."""
-        payload = {
-            "bin_id": bin_id,
-            "files": files,
-        }
+        """Start multipart upload for one or more bins."""
+        if not bins:
+            raise ValueError("Must provide at least one bin to start ingest")
+
+        payload = {"bins": bins}
 
         response = await self._request("POST", "/ingest/start", json=payload)
         return IngestStartResponse(**response.json())
@@ -214,13 +213,15 @@ class AsyncIFCBClient:
     async def complete_ingest(
         self,
         job_id: str,
+        bin_id: str,
         file_id: str,
         upload_id: str,
-        parts: List[Dict[str, any]],
+        parts: List[Dict[str, Any]],
     ) -> IngestCompleteResponse:
         """Complete multipart upload for a file."""
         payload = {
             "job_id": job_id,
+            "bin_id": bin_id,
             "file_id": file_id,
             "upload_id": upload_id,
             "parts": parts,
@@ -234,76 +235,116 @@ class AsyncIFCBClient:
         bin_id: str,
         file_paths: Dict[str, Path],
     ) -> str:
-        """
-        Upload bin files using multipart upload.
-
-        Args:
-            bin_id: Bin identifier
-            file_paths: Dict mapping extension to file path
-
-        Returns:
-            Job ID for the uploaded bin
-        """
-        # Validate files
         validate_bin_files(file_paths)
+        return await self.upload_bins({bin_id: file_paths})
 
-        # Prepare file info
-        files_info = []
-        for ext, path in file_paths.items():
-            files_info.append({
-                "filename": path.name,
-                "size_bytes": path.stat().st_size,
-            })
+    async def upload_bins(self, bins: Dict[str, Dict[str, Path]]) -> str:
+        """Upload multiple bins in a single ingest workflow."""
 
-        # Start ingest
-        ingest_response = await self.start_ingest(bin_id, files_info)
+        if not bins:
+            raise ValueError("No bins provided")
 
-        # Upload each file
-        for file_info in ingest_response.files:
-            # Find corresponding local file
-            local_path = None
+        payload_bins = []
+        local_file_map: Dict[str, Dict[str, Path]] = {}
+
+        for bin_id, file_paths in bins.items():
+            validate_bin_files(file_paths)
+
+            file_entries = []
+            name_map: Dict[str, Path] = {}
+
             for ext, path in file_paths.items():
-                if path.name == file_info.filename:
-                    local_path = path
-                    break
+                file_entries.append({
+                    "filename": path.name,
+                    "size_bytes": path.stat().st_size,
+                })
+                if path.name in name_map:
+                    raise UploadError(
+                        f"Duplicate filename {path.name} found for bin {bin_id}"
+                    )
+                name_map[path.name] = path
 
-            if not local_path:
-                raise UploadError(f"File {file_info.filename} not found in file_paths")
+            payload_bins.append({"bin_id": bin_id, "files": file_entries})
+            local_file_map[bin_id] = name_map
 
-            # Upload parts
-            part_size, num_parts = calculate_part_size(local_path.stat().st_size)
-            completed_parts = []
+        ingest_response = await self.start_ingest(payload_bins)
 
-            with open(local_path, 'rb') as f:
-                for part in file_info.part_urls:
-                    part_number = part.part_number
+        if not ingest_response.bins:
+            raise UploadError("Ingest response did not include any bins")
 
-                    # Read part data
-                    chunk = f.read(part_size)
+        response_bins = {bin_info.bin_id: bin_info for bin_info in ingest_response.bins}
 
-                    # Upload to presigned URL
-                    try:
-                        async with httpx.AsyncClient() as upload_client:
-                            upload_response = await upload_client.put(part.url, content=chunk)
-                            upload_response.raise_for_status()
+        async with httpx.AsyncClient() as upload_client:
+            for bin_id, name_map in local_file_map.items():
+                bin_upload = response_bins.get(bin_id)
+                if not bin_upload:
+                    raise UploadError(f"Ingest response missing bin {bin_id}")
 
-                            # Get ETag from response
-                            etag = upload_response.headers.get('ETag', '').strip('"')
+                for file_info in bin_upload.files:
+                    local_path = name_map.get(file_info.filename)
+                    if not local_path:
+                        raise UploadError(
+                            f"Local file for {file_info.filename} (bin {bin_id}) not found"
+                        )
+
+                    part_size, _ = calculate_part_size(local_path.stat().st_size)
+                    completed_parts = []
+
+                    with open(local_path, 'rb') as file_handle:
+                        for part in file_info.part_urls:
+                            part_number = part.part_number
+                            chunk = file_handle.read(part_size)
+
+                            try:
+                                upload_response = await upload_client.put(part.url, content=chunk)
+                                upload_response.raise_for_status()
+                            except Exception as exc:
+                                raise UploadError(
+                                    f"Failed to upload part {part_number} for {file_info.filename}: {exc}"
+                                ) from exc
+
+                            etag = upload_response.headers.get('ETag')
+                            if not etag:
+                                raise UploadError(
+                                    f"Upload part {part_number} for {file_info.filename} "
+                                    "succeeded but no ETag header was returned"
+                                )
+                            if not etag.startswith('"'):
+                                etag = f'"{etag}"'
 
                             completed_parts.append({
                                 "PartNumber": part_number,
                                 "ETag": etag,
                             })
 
-                    except Exception as e:
-                        raise UploadError(f"Failed to upload part {part_number}: {e}") from e
-
-            # Complete upload for this file
-            await self.complete_ingest(
-                job_id=ingest_response.job_id,
-                file_id=file_info.file_id,
-                upload_id=file_info.upload_id,
-                parts=completed_parts,
-            )
+                    await self.complete_ingest(
+                        job_id=ingest_response.job_id,
+                        bin_id=bin_id,
+                        file_id=file_info.file_id,
+                        upload_id=file_info.upload_id,
+                        parts=completed_parts,
+                    )
 
         return ingest_response.job_id
+
+    async def upload_bins_from_directory(
+        self,
+        root: Path | str,
+        *,
+        recursive: bool = True,
+        skip_incomplete: bool = False,
+        required_extensions: Optional[Iterable[str]] = None,
+    ) -> str:
+        """Discover bins under a directory and upload them as a single job."""
+
+        discovered = discover_bins(
+            root,
+            recursive=recursive,
+            required_extensions=required_extensions,
+            skip_incomplete=skip_incomplete,
+        )
+
+        if not discovered:
+            raise ValueError("No complete bins found in the specified directory")
+
+        return await self.upload_bins(discovered)

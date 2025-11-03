@@ -20,6 +20,7 @@ from .exceptions import (
     NetworkError,
     DownloadError,
 )
+from .utils import discover_bins
 
 __version__ = "1.0.0"
 
@@ -43,4 +44,6 @@ __all__ = [
     "APIError",
     "NetworkError",
     "DownloadError",
+    # Utilities
+    "discover_bins",
 ]

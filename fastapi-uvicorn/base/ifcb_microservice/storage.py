@@ -3,7 +3,7 @@
 import boto3
 from botocore.client import Config
 from botocore.exceptions import ClientError
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import logging
 from datetime import datetime, timedelta
 
@@ -69,7 +69,7 @@ class S3Client:
         upload_id: str,
         num_parts: int,
         ttl_seconds: Optional[int] = None,
-    ) -> List[Dict[str, any]]:
+    ) -> List[Dict[str, Any]]:
         """
         Generate pre-signed URLs for all parts of a multipart upload.
 
@@ -109,7 +109,7 @@ class S3Client:
         self,
         key: str,
         upload_id: str,
-        parts: List[Dict[str, any]],
+        parts: List[Dict[str, Any]],
     ) -> str:
         """
         Complete a multipart upload.

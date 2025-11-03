@@ -14,9 +14,9 @@ Scalable, flexible microservice architecture for IFCB data processing algorithms
 │  • BaseProcessor interface                      │
 └─────────────────────────────────────────────────┘
                       ▲
-         ┌────────────┼────────────┐
-         │            │            │
-    ┌────┴────┐  ┌────┴────┐  ┌────┴────┐
+         ┌────────────┼─────────────┐
+         │            │             │
+    ┌────┴────┐  ┌────┴─────┐  ┌────┴────┐
     │Features │  │Classifier│  │Segment  │
     │:8001    │  │:8002     │  │:8003    │
     └─────────┘  └──────────┘  └─────────┘
@@ -253,7 +253,7 @@ All services expose the same REST API:
 
 ### Ingest Endpoints (Multipart Upload)
 
-- `POST /ingest/start` - Start multipart upload
+- `POST /ingest/start` - Start multipart upload for one or more bins
 - `POST /ingest/complete` - Complete file upload
 
 Full API documentation available at `http://localhost:800X/docs` (FastAPI auto-generated).

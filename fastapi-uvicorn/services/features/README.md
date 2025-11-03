@@ -56,7 +56,7 @@ See the parent README for full API documentation. Key endpoints:
 - `GET /health` - Health check
 - `POST /jobs` - Submit a processing job
 - `GET /jobs/{job_id}` - Get job status
-- `POST /ingest/start` - Start multipart upload
+- `POST /ingest/start` - Start multipart upload for one or more bins
 - `POST /ingest/complete` - Complete file upload
 
 ## Implementation

@@ -26,11 +26,16 @@ class FileUploadInfo(BaseModel):
     part_urls: List[PartUrl]
 
 
+class BinUploadInfo(BaseModel):
+    """Upload information for a single bin."""
+    bin_id: str
+    files: List[FileUploadInfo]
+
+
 class IngestStartResponse(BaseModel):
     """Response from /ingest/start."""
     job_id: str
-    bin_id: str
-    files: List[FileUploadInfo]
+    bins: List[BinUploadInfo]
     expires_at: datetime
 
 
