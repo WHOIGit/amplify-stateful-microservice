@@ -4,6 +4,8 @@ Python client library for IFCB microservices.
 
 Works with **any** IFCB algorithm service (features, classifier, segmentation, etc.) since they all expose the same API.
 
+Contains both synchronous and asynchronous implementations.
+
 ## Installation
 
 ```bash
@@ -42,34 +44,6 @@ print(f"Features: {result.result.features.uris}")
 client.close()
 ```
 
-## Features
-
-### ✅ Synchronous Client
-- Simple, blocking API
-- Perfect for scripts and notebooks
-
-### ✅ Async Client
-- For concurrent operations
-- Process multiple bins in parallel
-
-### ✅ Complete API Coverage
-- Job submission and status
-- Multipart file uploads
-- Health checks
-- Job listing
-
-### ✅ Convenience Methods
-- `wait_for_job()` - Poll until complete
-- `upload_bin()` - Handle entire upload workflow
-
-### ✅ Type Hints & Validation
-- Pydantic models for all responses
-- Full type checking support
-
-### ✅ Error Handling
-- Custom exceptions for different error cases
-- Automatic retries for network issues
-
 ## Usage
 
 ### Working with Multiple Services
@@ -85,7 +59,7 @@ features_job = features_client.submit_job(manifest_uri="s3://bucket/manifest.jso
 classifier_client = IFCBClient("http://localhost:8002")
 classifier_job = classifier_client.submit_job(manifest_uri="s3://bucket/manifest.json")
 
-# Same API, different algorithms!
+# Same API, different algorithms
 ```
 
 ### Uploading Local Files
@@ -114,7 +88,7 @@ from pathlib import Path
 job_id = client.upload_bins_from_directory(
     Path("/data/ifcb"),
     recursive=True,
-    skip_incomplete=False,
+    skip_incomplete=False, # will raise an error if a bin does not have a .adc, .hdr, and .roi file
 )
 
 print(f"Queued job {job_id} for directory upload")
@@ -146,7 +120,7 @@ async def process_bins():
 asyncio.run(process_bins())
 ```
 
-### Context Manager
+### Usage with Context Manager
 
 ```python
 # Automatic cleanup
@@ -156,7 +130,7 @@ with IFCBClient("http://localhost:8001") as client:
     # Client automatically closed
 ```
 
-### Error Handling
+### Custom Error Handling
 
 ```python
 from ifcb_client import (
