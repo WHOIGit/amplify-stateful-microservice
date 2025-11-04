@@ -17,7 +17,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--base-url",
-        default="http://localhost:8000",
+        default="http://localhost:8001",
         help="Base URL of the IFCB service (default: %(default)s).",
     )
     parser.add_argument(
@@ -107,6 +107,14 @@ def main() -> None:
         raise SystemExit("No complete bins found.")
 
     print(f"Found {len(bins)} bin(s). Starting upload...")
+
+    sample_bins = list(bins.items())
+    preview_count = min(len(sample_bins), 10)
+    for bin_id, files in sample_bins[:preview_count]:
+        file_list = ", ".join(sorted(path.name for path in files.values()))
+        print(f"  - {bin_id}: {file_list}")
+    if len(sample_bins) > preview_count:
+        print(f"  ... and {len(sample_bins) - preview_count} more bin(s)")
 
     client_kwargs = {}
     if args.s3_endpoint_url:

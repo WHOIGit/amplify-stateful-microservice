@@ -22,6 +22,12 @@ Scalable, flexible microservice architecture for IFCB data processing algorithms
     └─────────┘  └──────────┘  └─────────┘
 ```
 
+Repository layout:
+
+- `ifcb_microservice/` – reusable infrastructure (ingest API, S3 orchestration, job store, workers)
+- `examples/ifcb_features_service/` – reference implementation of the features processor using the framework
+- `client/` – Python SDK and CLI helpers (multipart upload, directory ingestion, job polling)
+
 ## Quick Start
 
 ### 1. Configuration
@@ -29,9 +35,10 @@ Scalable, flexible microservice architecture for IFCB data processing algorithms
 Copy the example config:
 
 ```bash
-cd fastapi-uvicorn
-cp services/features/env.example services/features/.env
+cp examples/ifcb_features_service/.env.example examples/ifcb_features_service/.env
 ```
+
+If you plan to run the API directly with `uvicorn` from the project root, copy the file to `.env` at the root (or export the variables manually).
 
 Edit `.env` with your S3 settings:
 
@@ -45,16 +52,16 @@ S3_BUCKET=ifcb-features
 ### 2. Run with Docker Compose
 
 ```bash
-cd fastapi-uvicorn
+cd examples/ifcb_features_service
 
-# Build and start all services
-docker-compose up -d
+# Build and start the features service
+docker compose up -d
 
 # View logs
-docker-compose logs -f features
+docker compose logs -f features
 
 # Stop services
-docker-compose down
+docker compose down
 ```
 
 ### 3. Test the API
@@ -82,11 +89,14 @@ curl -X POST http://localhost:8001/jobs \
 
 # Check job status
 curl http://localhost:8001/jobs/{job_id}
+
+# Or upload bins via the client helper
+python client/examples/upload_bin.py /path/to/bin-directory
 ```
 
 ## Available Services
 
-### Features Service (Port 8001)
+### Features Service Example (Port 8001)
 
 Extracts morphological features from IFCB ROI images using the [ifcb-features](https://github.com/WHOIGit/ifcb-features) library.
 
@@ -95,7 +105,9 @@ Extracts morphological features from IFCB ROI images using the [ifcb-features](h
 - Blob segmentation masks
 - Parquet files + WebDataset TAR archives
 
-**Documentation:** See `services/features/README.md`
+**Location:** `examples/ifcb_features_service/`
+
+**Documentation:** See `examples/ifcb_features_service/README.md`
 
 ### Future Services
 
@@ -104,137 +116,24 @@ Extracts morphological features from IFCB ROI images using the [ifcb-features](h
 
 ## Creating a New Algorithm Service
 
-To add a new service, implement the `BaseProcessor` interface:
+The shared `ifcb_microservice` package lets you wrap any IFCB algorithm in the same REST/S3 workflow. To create a new service:
 
-### 1. Create service directory
+1. **Create a package** (e.g., `my_algorithm_service/`).
+2. **Subclass `BaseProcessor`** and implement `process_bin` to emit a `pandas.DataFrame` plus optional artifacts.
+3. **Expose the API** with a minimal `main.py`:
 
-```bash
-mkdir -p services/my-algorithm/app
-```
+   ```python
+   from ifcb_microservice import create_app
+   from .processor import MyProcessor
 
-### 2. Implement the processor
+   app = create_app(MyProcessor())
 
-**`services/my-algorithm/app/processor.py`**
+   if __name__ == "__main__":
+       import uvicorn
+       uvicorn.run(app, host="0.0.0.0", port=8000)
+   ```
 
-```python
-from ifcb_microservice import BaseProcessor
-import pandas as pd
-from pathlib import Path
-from typing import Dict, Tuple, List
-
-class MyProcessor(BaseProcessor):
-    @property
-    def name(self) -> str:
-        return "my-algorithm"
-
-    @property
-    def version(self) -> str:
-        return "1.0.0"
-
-    def process_bin(
-        self,
-        bin_id: str,
-        bin_files: Dict[str, Path]
-    ) -> Tuple[pd.DataFrame, List]:
-        """
-        Process IFCB bin files.
-
-        Args:
-            bin_id: Bin identifier
-            bin_files: {'.adc': Path, '.roi': Path, '.hdr': Path}
-
-        Returns:
-            (results_dataframe, artifacts_list)
-        """
-        # Validate required files
-        self.validate_bin_files(bin_files, {'.adc', '.roi', '.hdr'})
-
-        # Your algorithm here
-        results = []
-        for roi in self._read_rois(bin_files):
-            result = self._process_roi(roi)
-            results.append(result)
-
-        df = pd.DataFrame(results)
-        self.validate_output(df)
-
-        return df, []  # No artifacts for this example
-```
-
-### 3. Create the app
-
-**`services/my-algorithm/app/main.py`**
-
-```python
-from ifcb_microservice import create_app
-from .processor import MyProcessor
-
-app = create_app(MyProcessor())
-```
-
-### 4. Define dependencies
-
-**`services/my-algorithm/pyproject.toml`**
-
-```toml
-[project]
-name = "ifcb-my-algorithm-service"
-version = "1.0.0"
-dependencies = [
-    "ifcb-microservice-base",
-    # Your algorithm's dependencies
-    "torch>=2.0.0",
-    "torchvision>=0.15.0",
-]
-```
-
-### 5. Create Dockerfile
-
-**`services/my-algorithm/Dockerfile`**
-
-```dockerfile
-FROM python:3.12-slim
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y git curl && \
-    rm -rf /var/lib/apt/lists/* && \
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-
-ENV PATH="/root/.local/bin:$PATH"
-
-# Install base framework
-COPY ../../base /tmp/base
-RUN cd /tmp/base && uv pip install --system .
-
-# Install service dependencies
-COPY pyproject.toml ./
-RUN uv pip install --system .
-
-# Copy service code
-COPY ./app /app/app
-
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-### 6. Add to docker-compose.yml
-
-```yaml
-  my-algorithm:
-    build:
-      context: .
-      dockerfile: services/my-algorithm/Dockerfile
-    ports:
-      - "8004:8000"
-    environment:
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL}
-      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
-      - S3_SECRET_KEY=${S3_SECRET_KEY}
-      - S3_BUCKET=${S3_BUCKET}
-```
-
-Done! All infrastructure (S3, jobs, uploads, workers, API) is handled automatically.
+4. **Package & deploy**: list dependencies in `pyproject.toml`, build a Docker image similar to the provided `Dockerfile`, and run under Uvicorn. The framework handles ingest endpoints, multipart uploads, background workers, and job state so you focus only on algorithm logic.
 
 ## API Documentation
 
@@ -263,25 +162,22 @@ Full API documentation available at `http://localhost:800X/docs` (FastAPI auto-g
 ### Running locally without Docker
 
 ```bash
-# Install base package
-cd base
-uv pip install -e .
-
-# Install service
-cd ../services/features
+# Install the microservice locally (base + features example)
 uv pip install -e .
 uv pip install git+https://github.com/WHOIGit/ifcb-features.git
 
-# Run
-uvicorn app.main:app --reload
+# Run the example API
+uvicorn examples.ifcb_features_service.main:app --reload
 ```
+
+Ensure the required environment variables are set before running locally (for convenience you can copy `examples/ifcb_features_service/.env.example` to `.env` in the project root).
 
 ### Testing
 
 ```bash
-# Test the processor directly
+# Test the example processor directly
 python -c "
-from services.features.app.processor import FeaturesProcessor
+from examples.ifcb_features_service.processor import FeaturesProcessor
 from pathlib import Path
 
 processor = FeaturesProcessor()

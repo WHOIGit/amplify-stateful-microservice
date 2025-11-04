@@ -9,8 +9,10 @@ Contains both synchronous and asynchronous implementations.
 ## Installation
 
 ```bash
-pip install -e .
+pip install -e ..[client]
 ```
+
+Run the command from the `client/` directory (or from the project root with `pip install -e .[client]`).
 
 ## Quick Start
 
@@ -93,6 +95,12 @@ job_id = client.upload_bins_from_directory(
 
 print(f"Queued job {job_id} for directory upload")
 result = client.wait_for_job(job_id)
+```
+
+### CLI Helper
+
+```bash
+python client/examples/upload_bin.py /path/to/bin-directory --base-url http://localhost:8001
 ```
 
 ### Async Usage

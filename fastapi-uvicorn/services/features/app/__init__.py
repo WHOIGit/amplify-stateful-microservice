@@ -1,1 +1,0 @@
-"""Features extraction service application."""
