@@ -5,7 +5,7 @@ REST microservice that wraps the `ifcb-features` algorithm using the shared `ifc
 ## Running locally
 
 ```bash
-uv pip install -e .
+uv pip install -e ".[job-runtime]"
 uv pip install git+https://github.com/WHOIGit/ifcb-features.git
 uvicorn examples.ifcb_features_service.main:app --reload
 ```

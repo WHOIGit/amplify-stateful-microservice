@@ -190,8 +190,8 @@ Full API documentation available at `http://localhost:800X/docs` (FastAPI auto-g
 ### Running locally without Docker
 
 ```bash
-# Install the microservice locally (base + features example)
-uv pip install -e .
+# Install the microservice locally (base + IFCB job dependencies)
+uv pip install -e ".[job-runtime]"
 uv pip install git+https://github.com/WHOIGit/ifcb-features.git
 
 # Run the example API
