@@ -34,7 +34,7 @@ Repository layout:
 
 ## Creating a New Service
 
-The shared `amplify_microservice` package lets you wrap any IFCB algorithm in the same REST/S3 workflow. To create a new service:
+The shared `amplify_microservice` package lets you wrap any algorithm in the same REST/S3 workflow. To create a new service:
 
 1. **Create a package** (e.g., `my_algorithm_service/`).
 2. **Subclass `BaseProcessor`**:
