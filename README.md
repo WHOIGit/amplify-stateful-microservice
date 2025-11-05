@@ -10,7 +10,7 @@ Scalable architecture for IFCB processing microservices and general direct-respo
 │  • S3 upload/download                        │
 │  • Job management (IFCB batch)               │
 │  • Worker pool                               │
-│  • Direct action helpers (generic)           │
+│  • Direct-action microservices (generic)     │
 │  • API routes (health, jobs, ingest, direct) │
 │  • BaseProcessor interface                   │
 └──────────────────────────────────────────────┘
@@ -27,7 +27,7 @@ Scalable architecture for IFCB processing microservices and general direct-respo
 
 Repository layout:
 
-- `ifcb_microservice/` – reusable infrastructure (ingest API, S3 orchestration, job store, workers, direct-action helpers)
+- `ifcb_microservice/` – reusable infrastructure (ingest API, S3 orchestration, job store, workers, direct-action tooling)
 - `examples/ifcb_features_service/` – reference implementation of the features processor using the framework
 - `examples/image_format_conversion_service/` – direct-response microservice example (generic image conversion)
 - `client/` – Python library for interacting with IFCB processing microservices (multipart upload, directory ingestion, job polling)
