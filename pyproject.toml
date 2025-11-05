@@ -1,7 +1,7 @@
 [project]
 name = "amplify-microservice"
 version = "1.0.0"
-description = "Reusable IFCB microservice framework, features service example, and Python client"
+description = "Reusable microservice framework, features service examples and Python client"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
