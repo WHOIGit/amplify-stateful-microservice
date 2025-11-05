@@ -32,40 +32,7 @@ Repository layout:
 - `examples/image_format_conversion_service/` – direct-response microservice example (generic image conversion)
 - `client/` – Python library for interacting with IFCB processing microservices (multipart upload, directory ingestion, job polling)
 
-## Available Services
-
-### Features Service Example (Port 8001)
-
-Extracts morphological features from IFCB ROI images using the [ifcb-features](https://github.com/WHOIGit/ifcb-features) library.
-
-**Output:**
-- 30 morphology/texture features per ROI
-- Blob segmentation masks
-- Parquet files + WebDataset TAR archives
-
-**Location:** `examples/ifcb_features_service/`
-
-**Documentation:** See `examples/ifcb_features_service/README.md`
-
-### Image Format Conversion Direct Service (Port 8010)
-
-Instant image format conversion built with the direct-action plumbing (no job queue). This example shows how to use the base library for non-IFCB utilities.
-
-**Endpoint:**
-- `POST /media/image/convert` – convert an image stored in S3 to a new format (returns bytes)
-
-**Location:** `examples/image_format_conversion_service/`
-
-**Documentation:** See `examples/image_format_conversion_service/README.md`
-
-**Docker:** `cd examples/image_format_conversion_service && cp .env.example .env && docker compose up --build`
-
-### Future Services
-
-- **Classifier** (Port 8002) - Species classification
-- **Segmentation** (Port 8003) - Advanced segmentation
-
-## Creating a New Algorithm Service
+## Creating a New Service
 
 The shared `ifcb_microservice` package lets you wrap any IFCB algorithm in the same REST/S3 workflow. To create a new service:
 
@@ -118,3 +85,31 @@ All services expose health endpoints. Job-enabled services include ingest + job 
 Direct services surface custom endpoints based on the `DirectAction` definitions returned by the processor. These routes can operate on IFCB or non-IFCB data and participate in OpenAPI docs automatically (see `/docs`).
 
 Full API documentation available at `http://localhost:800X/docs` (FastAPI auto-generated).
+
+## Available Services
+
+### Features Service Example (Port 8001)
+
+Extracts morphological features from IFCB ROI images using the [ifcb-features](https://github.com/WHOIGit/ifcb-features) library.
+
+**Output:**
+- 30 morphology/texture features per ROI
+- Blob segmentation masks
+- Parquet files + WebDataset TAR archives
+
+**Location:** `examples/ifcb_features_service/`
+
+**Documentation:** See `examples/ifcb_features_service/README.md`
+
+### Image Format Conversion Direct Service (Port 8010)
+
+Instant image format conversion built with the direct-action plumbing (no job queue). This example shows how to use the base library for non-IFCB utilities.
+
+**Endpoint:**
+- `POST /media/image/convert` – convert an image stored in S3 to a new format (returns bytes)
+
+**Location:** `examples/image_format_conversion_service/`
+
+**Documentation:** See `examples/image_format_conversion_service/README.md`
+
+**Docker:** `cd examples/image_format_conversion_service && cp .env.example .env && docker compose up --build`
