@@ -1,39 +1,62 @@
-# IFCB Features Service
+# IFCB Features Service Quick Start
 
-REST microservice that wraps the `ifcb-features` algorithm using the shared `ifcb_microservice` infrastructure.
+### 1. Configuration
 
-## Running locally
+Copy the example config:
 
 ```bash
-uv pip install -e ".[job-runtime]"
-uv pip install git+https://github.com/WHOIGit/ifcb-features.git
-uvicorn examples.ifcb_features_service.main:app --reload
+cp examples/ifcb_features_service/.env.example examples/ifcb_features_service/.env
 ```
 
-## Environment variables
-
-See `examples/ifcb_features_service/.env.example` for the full list. Copy it to `.env` in the same directory before using Docker Compose.
-
-The most important values are:
-
-- `S3_ENDPOINT_URL` – S3-compatible endpoint (e.g. MinIO)
-- `S3_ACCESS_KEY` / `S3_SECRET_KEY`
-- `S3_BUCKET`
-- `MAX_CONCURRENT_JOBS`
-
-## Output format
-
-- Feature tables written as Parquet files under `s3://{bucket}/{results_prefix}/{job_id}/features/`
-- ROI masks exported as WebDataset shards under `.../masks/`
-- A `results.json` index summarising all artefacts and counts
-
-## Extending
-
-To build a different IFCB algorithm service, create your own package with a custom `BaseProcessor` implementation and call `create_app()` exactly like `examples/ifcb_features_service/main.py`.
-
-## Docker Compose
+Edit `.env` with your S3 settings:
 
 ```bash
+S3_ENDPOINT_URL=http://your-s3-server:9000
+S3_ACCESS_KEY=your-access-key
+S3_SECRET_KEY=your-secret-key
+S3_BUCKET=ifcb-features
+```
+
+### 2. Run with Docker Compose
+
+```bash
+cd examples/ifcb_features_service
+
+# Build and start the features service
 docker compose up -d
-docker compose logs -f features
+
+# Stop services
+docker compose down
 ```
+
+### 3. Test the API
+
+```bash
+# Health check
+curl http://localhost:8001/health
+
+# Submit a job
+curl -X POST http://localhost:8001/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "manifest_inline": {
+      "bins": [{
+        "bin_id": "D20230101T120000_IFCB123",
+        "files": [
+          "s3://ifcb-features/data/D20230101T120000_IFCB123.adc",
+          "s3://ifcb-features/data/D20230101T120000_IFCB123.roi",
+          "s3://ifcb-features/data/D20230101T120000_IFCB123.hdr"
+        ],
+        "bytes": 1234567
+      }]
+    }
+  }'
+
+# Check job status
+curl http://localhost:8001/jobs/{job_id}
+
+# Or upload bins via the client helper
+python client/examples/upload_bin.py /path/to/bin-directory
+```
+
+
