@@ -19,16 +19,6 @@ curl -X POST http://localhost:8010/media/image/convert \
       }'
 ```
 
-## Running Locally
-
-```bash
-# Install dependencies
-uv pip install -e .
-
-# Launch the API
-uvicorn examples.image_format_conversion_service.main:app --reload --port 8010
-```
-
 ## Run with Docker Compose
 
 ```bash

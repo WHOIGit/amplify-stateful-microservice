@@ -88,7 +88,7 @@ Full API documentation available at `http://localhost:800X/docs` (FastAPI auto-g
 
 ## Available Services
 
-### Features Service Example (Port 8001)
+### Features Service Example
 
 Extracts morphological features from IFCB ROI images using the [ifcb-features](https://github.com/WHOIGit/ifcb-features) library.
 
@@ -101,7 +101,7 @@ Extracts morphological features from IFCB ROI images using the [ifcb-features](h
 
 **Documentation:** See `examples/ifcb_features_service/README.md`
 
-### Image Format Conversion Direct Service (Port 8010)
+### Image Format Conversion Direct Service
 
 Instant image format conversion built with the direct-action plumbing (no job queue). This example shows how to use the base library for non-IFCB utilities.
 
