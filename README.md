@@ -5,15 +5,15 @@ Scalable architecture for IFCB processing microservices and general direct-respo
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────┐
-│     ifcb-microservice-base (shared package)     │
-│  • S3 upload/download                           │
-│  • Job management (IFCB batch)                  │
-│  • Worker pool                                  │
-│  • Direct action helpers (generic)              │
-│  • API routes (health, jobs, ingest, direct)    │
-│  • BaseProcessor interface                      │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│            amplify-microservice              │
+│  • S3 upload/download                        │
+│  • Job management (IFCB batch)               │
+│  • Worker pool                               │
+│  • Direct action helpers (generic)           │
+│  • API routes (health, jobs, ingest, direct) │
+│  • BaseProcessor interface                   │
+└──────────────────────────────────────────────┘
                 ▲                       ▲
          ┌──────┴──────┐                │
          │             │                | 
