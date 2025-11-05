@@ -1,17 +1,50 @@
-"""Base processor interface for IFCB algorithm implementations."""
+"""Base processor interface for IFCB batch processors and direct-action utilities."""
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Tuple, List, Any, Callable, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+
 import pandas as pd
+from pydantic import BaseModel
+
+
+@dataclass
+class DirectAction:
+    """
+    Definition of a direct-response API route backed by a processor method.
+
+    Attributes:
+        name: Short identifier used for logging and OpenAPI docs.
+        path: FastAPI route path (e.g., "/transform").
+        handler: Callable invoked with the processor instance and validated payload.
+        request_model: Pydantic model for request validation.
+        response_model: Optional Pydantic model for response serialization.
+        methods: HTTP methods to expose (defaults to POST).
+        summary: Optional OpenAPI summary.
+        description: Optional longer description.
+        tags: Optional OpenAPI tags.
+        media_type: Optional override for response media type.
+    """
+
+    name: str
+    path: str
+    handler: Callable[["BaseProcessor", BaseModel], Awaitable[Any] | Any]
+    request_model: type[BaseModel]
+    response_model: type[BaseModel] | None = None
+    methods: tuple[str, ...] = ("POST",)
+    summary: str | None = None
+    description: str | None = None
+    tags: tuple[str, ...] | None = None
+    media_type: str | None = None
 
 
 class BaseProcessor(ABC):
-    """
-    Base class for IFCB bin processors.
+    """Shared hook point for queued IFCB jobs and generic direct actions.
 
-    Algorithm developers should subclass this and implement the process_bin method.
-    The base framework handles all infrastructure (S3, jobs, uploads, workers).
+    - Batch/IFCB services implement :meth:`process_bin` and may also expose direct routes.
+    - Pure direct-response utilities can rely solely on :meth:`get_direct_actions` and
+      leave :meth:`process_bin` unimplemented (raise NotImplementedError).
     """
 
     @abstractmethod
@@ -154,3 +187,16 @@ class BaseProcessor(ABC):
         payload = {"stage": stage}
         payload.update(data)
         callback(payload)
+
+    # ==========================================================================
+    # Direct Actions
+    # ==========================================================================
+
+    def get_direct_actions(self) -> List[DirectAction]:
+        """
+        Return the list of direct-response actions provided by this processor.
+
+        Override in subclasses to expose synchronous microservice endpoints.
+        Default: no direct actions.
+        """
+        return []

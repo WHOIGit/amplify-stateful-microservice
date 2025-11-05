@@ -1,6 +1,6 @@
 # IFCB Microservices Architecture
 
-Scalable, flexible microservice architecture for IFCB data processing algorithms.
+Scalable architecture for IFCB batch jobs plus generic direct-response services (image utilities, metadata lookups, etc.).
 
 ## Architecture Overview
 
@@ -8,24 +8,28 @@ Scalable, flexible microservice architecture for IFCB data processing algorithms
 ┌─────────────────────────────────────────────────┐
 │     ifcb-microservice-base (shared package)     │
 │  • S3 upload/download                           │
-│  • Job management                               │
+│  • Job management (IFCB batch)                  │
 │  • Worker pool                                  │
-│  • API routes (health, jobs, ingest)            │
+│  • Direct action helpers (generic)              │
+│  • API routes (health, jobs, ingest, direct)    │
 │  • BaseProcessor interface                      │
 └─────────────────────────────────────────────────┘
-                      ▲
-         ┌────────────┼─────────────┐
-         │            │             │
-    ┌────┴────┐  ┌────┴─────┐  ┌────┴────┐
-    │Features │  │Classifier│  │Segment  │
-    │:8001    │  │:8002     │  │:8003    │
-    └─────────┘  └──────────┘  └─────────┘
+                ▲                       ▲
+         ┌──────┴──────┐        ┌───────┴────────┐
+         │             │        │                │
+    ┌────┴────┐   ┌────┴────┐   │ ┌────────────┐ │
+    │Features │   │Segment  │   │ │Convert Img │ │
+    │:8001    │   │:8003    │   │ │:8010       │ │
+    └─────────┘   └─────────┘   │ └────────────┘ │
+          │                      │                │
+   IFCB batch jobs          Generic direct APIs
 ```
 
 Repository layout:
 
-- `ifcb_microservice/` – reusable infrastructure (ingest API, S3 orchestration, job store, workers)
+- `ifcb_microservice/` – reusable infrastructure (ingest API, S3 orchestration, job store, workers, direct-action helpers)
 - `examples/ifcb_features_service/` – reference implementation of the features processor using the framework
+- `examples/image_format_conversion_service/` – direct-response microservice example (generic image conversion)
 - `client/` – Python SDK and CLI helpers (multipart upload, directory ingestion, job polling)
 
 ## Quick Start
@@ -101,13 +105,26 @@ python client/examples/upload_bin.py /path/to/bin-directory
 Extracts morphological features from IFCB ROI images using the [ifcb-features](https://github.com/WHOIGit/ifcb-features) library.
 
 **Output:**
-- ~241 feature columns per ROI
+- 30 morphology/texture features per ROI
 - Blob segmentation masks
 - Parquet files + WebDataset TAR archives
 
 **Location:** `examples/ifcb_features_service/`
 
 **Documentation:** See `examples/ifcb_features_service/README.md`
+
+### Image Format Conversion Direct Service (Port 8010)
+
+Instant image format conversion built with the direct-action plumbing (no job queue). This example shows how to use the base library for non-IFCB utilities.
+
+**Endpoint:**
+- `POST /media/image/convert` – convert an image stored in S3 to a new format (returns bytes)
+
+**Location:** `examples/image_format_conversion_service/`
+
+**Documentation:** See `examples/image_format_conversion_service/README.md`
+
+**Docker:** `cd examples/image_format_conversion_service && cp .env.example .env && docker compose up --build`
 
 ### Future Services
 
@@ -119,14 +136,21 @@ Extracts morphological features from IFCB ROI images using the [ifcb-features](h
 The shared `ifcb_microservice` package lets you wrap any IFCB algorithm in the same REST/S3 workflow. To create a new service:
 
 1. **Create a package** (e.g., `my_algorithm_service/`).
-2. **Subclass `BaseProcessor`** and implement `process_bin` to emit a `pandas.DataFrame` plus optional artifacts.
+2. **Subclass `BaseProcessor`**:
+   - Override `process_bin` for long-running batch jobs, **and/or**
+   - Override `get_direct_actions` to return `DirectAction` descriptors for instant endpoints (can be IFCB-specific or totally generic).
 3. **Expose the API** with a minimal `main.py`:
 
    ```python
-   from ifcb_microservice import create_app
+   from ifcb_microservice import ServiceConfig, create_app
    from .processor import MyProcessor
 
-   app = create_app(MyProcessor())
+   config = ServiceConfig(
+       enable_async_jobs=True,          # queue-backed jobs
+       enable_direct_actions=True      # immediate responses
+   )
+
+   app = create_app(MyProcessor(), config)
 
    if __name__ == "__main__":
        import uvicorn
@@ -137,14 +161,14 @@ The shared `ifcb_microservice` package lets you wrap any IFCB algorithm in the s
 
 ## API Documentation
 
-All services expose the same REST API:
+All services expose health endpoints. Job-enabled services include ingest + job APIs, while direct services expose whatever `DirectAction` routes the processor registers.
 
 ### Health Endpoints
 
 - `GET /` - Root health check
 - `GET /health` - Detailed health status
 
-### Job Endpoints
+### Job Endpoints (when `enable_async_jobs=True`)
 
 - `POST /jobs` - Submit a processing job
 - `GET /jobs/{job_id}` - Get job status
@@ -154,6 +178,10 @@ All services expose the same REST API:
 
 - `POST /ingest/start` - Start multipart upload for one or more bins
 - `POST /ingest/complete` - Complete file upload
+
+### Direct Action Endpoints
+
+Direct services surface custom endpoints based on the `DirectAction` definitions returned by the processor. These routes can operate on IFCB or non-IFCB data and participate in OpenAPI docs automatically (see `/docs`).
 
 Full API documentation available at `http://localhost:800X/docs` (FastAPI auto-generated).
 

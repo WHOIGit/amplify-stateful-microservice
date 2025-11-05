@@ -46,7 +46,7 @@ class FeaturesProcessor(BaseProcessor):
 
         Returns:
             Tuple of:
-                - DataFrame with ~241 feature columns per ROI
+                - DataFrame with the standard `ifcb-features` columns per ROI (30 fields)
                 - List of blob mask images (numpy arrays)
 
         Raises:
@@ -162,7 +162,7 @@ class FeaturesProcessor(BaseProcessor):
         """
         Define expected output schema.
 
-        The ifcb-features library produces ~241 feature columns.
+        The `ifcb-features` library defines the full column set (30 fields).
         Key columns include morphology, texture, and geometry features.
         """
         return {
@@ -172,5 +172,5 @@ class FeaturesProcessor(BaseProcessor):
             'Eccentricity': 'float64',
             'MajorAxisLength': 'float64',
             'MinorAxisLength': 'float64',
-            # ... and ~236 more feature columns from ifcb-features
+            # ... plus the remaining columns from ifcb-features
         }
