@@ -13,7 +13,7 @@ ENV PYTHONUNBUFFERED=1
 
 COPY pyproject.toml ./
 COPY README.md ./
-COPY ifcb_microservice ./ifcb_microservice
+COPY amplify_microservice ./amplify_microservice
 COPY client ./client
 COPY examples ./examples
 

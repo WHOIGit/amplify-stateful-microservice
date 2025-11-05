@@ -1,6 +1,6 @@
 """IFCB Features Extraction Microservice."""
 
-from ifcb_microservice import create_app
+from amplify_microservice import create_app
 from .processor import FeaturesProcessor
 
 # Create FastAPI app with features processor

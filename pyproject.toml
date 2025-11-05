@@ -33,7 +33,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = [
-    "ifcb_microservice",
+    "amplify_microservice",
     "client/ifcb_client",
     "examples/ifcb_features_service",
     "examples/image_format_conversion_service",

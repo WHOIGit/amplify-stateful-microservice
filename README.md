@@ -27,14 +27,14 @@ Scalable architecture for IFCB processing microservices and general direct-respo
 
 Repository layout:
 
-- `ifcb_microservice/` – reusable infrastructure (ingest API, S3 orchestration, job store, workers, direct-action tooling)
+- `amplify_microservice/` – reusable infrastructure (ingest API, S3 orchestration, job store, workers, direct-action tooling)
 - `examples/ifcb_features_service/` – reference implementation of the features processor using the framework
 - `examples/image_format_conversion_service/` – direct-response microservice example (generic image conversion)
 - `client/` – Python library for interacting with IFCB processing microservices (multipart upload, directory ingestion, job polling)
 
 ## Creating a New Service
 
-The shared `ifcb_microservice` package lets you wrap any IFCB algorithm in the same REST/S3 workflow. To create a new service:
+The shared `amplify_microservice` package lets you wrap any IFCB algorithm in the same REST/S3 workflow. To create a new service:
 
 1. **Create a package** (e.g., `my_algorithm_service/`).
 2. **Subclass `BaseProcessor`**:
@@ -43,7 +43,7 @@ The shared `ifcb_microservice` package lets you wrap any IFCB algorithm in the s
 3. **Expose the API** with a minimal `main.py`:
 
    ```python
-   from ifcb_microservice import ServiceConfig, create_app
+   from amplify_microservice import ServiceConfig, create_app
    from .processor import MyProcessor
 
    config = ServiceConfig(

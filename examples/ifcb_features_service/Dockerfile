@@ -12,7 +12,7 @@ ENV PATH="/root/.local/bin:$PATH"
 
 COPY pyproject.toml ./
 COPY README.md ./
-COPY ifcb_microservice ./ifcb_microservice
+COPY amplify_microservice ./amplify_microservice
 COPY client ./client
 COPY examples ./examples
 

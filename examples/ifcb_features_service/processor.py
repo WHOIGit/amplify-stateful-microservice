@@ -11,7 +11,7 @@ import numpy as np
 from ifcb import DataDirectory
 from ifcb_features.all import compute_features
 
-from ifcb_microservice import BaseProcessor
+from amplify_microservice import BaseProcessor
 
 logger = logging.getLogger(__name__)
 

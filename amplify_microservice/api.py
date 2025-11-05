@@ -64,7 +64,7 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
         Configured FastAPI application
 
     Example:
-        >>> from ifcb_microservice import create_app, BaseProcessor, ServiceConfig
+        >>> from amplify_microservice import create_app, BaseProcessor, ServiceConfig
         >>> class MyProcessor(BaseProcessor):
         ...     def process_bin(self, bin_id, bin_files):
         ...         # Algorithm implementation

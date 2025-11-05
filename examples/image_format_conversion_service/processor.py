@@ -11,8 +11,8 @@ from fastapi import HTTPException
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from ifcb_microservice import BaseProcessor, DirectAction
-from ifcb_microservice.direct import fetch_s3_bytes, render_bytes, run_blocking
+from amplify_microservice import BaseProcessor, DirectAction
+from amplify_microservice.direct import fetch_s3_bytes, render_bytes, run_blocking
 
 logger = logging.getLogger(__name__)
 

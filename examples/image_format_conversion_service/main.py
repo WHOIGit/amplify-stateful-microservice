@@ -1,6 +1,6 @@
 """FastAPI entrypoint for the image format conversion direct service."""
 
-from ifcb_microservice import ServiceConfig, create_app
+from amplify_microservice import ServiceConfig, create_app
 
 from .processor import ImageConvertProcessor
 
