@@ -184,39 +184,3 @@ All services expose health endpoints. Job-enabled services include ingest + job 
 Direct services surface custom endpoints based on the `DirectAction` definitions returned by the processor. These routes can operate on IFCB or non-IFCB data and participate in OpenAPI docs automatically (see `/docs`).
 
 Full API documentation available at `http://localhost:800X/docs` (FastAPI auto-generated).
-
-## Development
-
-### Running locally without Docker
-
-```bash
-# Install the microservice locally (base + IFCB job dependencies)
-uv pip install -e ".[job-runtime]"
-uv pip install git+https://github.com/WHOIGit/ifcb-features.git
-
-# Run the example API
-uvicorn examples.ifcb_features_service.main:app --reload
-```
-
-Ensure the required environment variables are set before running locally (for convenience you can copy `examples/ifcb_features_service/.env.example` to `.env` in the project root).
-
-### Testing
-
-```bash
-# Test the example processor directly
-python -c "
-from examples.ifcb_features_service.processor import FeaturesProcessor
-from pathlib import Path
-
-processor = FeaturesProcessor()
-results_df, artifacts = processor.process_bin(
-    'test_bin',
-    {
-        '.adc': Path('test.adc'),
-        '.roi': Path('test.roi'),
-        '.hdr': Path('test.hdr'),
-    }
-)
-print(results_df.head())
-"
-```
