@@ -1,6 +1,6 @@
-# IFCB Microservices Architecture
+# Amplify Microservices Architecture
 
-Scalable architecture for IFCB batch jobs plus generic direct-response services (image utilities, metadata lookups, etc.).
+Scalable architecture for IFCB processing microservices and general direct-response microservices.
 
 ## Architecture Overview
 
@@ -15,14 +15,14 @@ Scalable architecture for IFCB batch jobs plus generic direct-response services 
 │  • BaseProcessor interface                      │
 └─────────────────────────────────────────────────┘
                 ▲                       ▲
-         ┌──────┴──────┐        ┌───────┴────────┐
-         │             │        │                │
-    ┌────┴────┐   ┌────┴────┐   │ ┌────────────┐ │
-    │Features │   │Segment  │   │ │Convert Img │ │
-    │:8001    │   │:8003    │   │ │:8010       │ │
-    └─────────┘   └─────────┘   │ └────────────┘ │
-          │                      │                │
-   IFCB batch jobs          Generic direct APIs
+         ┌──────┴──────┐                │
+         │             │                | 
+    ┌────┴────┐   ┌────┴────┐      ┌────┴────┐
+    │Features │   │Segment  │      │Convert  │
+    │:8001    │   │:8003    │      │Img :8010│
+    └─────────┘   └─────────┘      └─────────┘
+          
+         IFCB batch jobs         Generic direct APIs
 ```
 
 Repository layout:
@@ -30,7 +30,7 @@ Repository layout:
 - `ifcb_microservice/` – reusable infrastructure (ingest API, S3 orchestration, job store, workers, direct-action helpers)
 - `examples/ifcb_features_service/` – reference implementation of the features processor using the framework
 - `examples/image_format_conversion_service/` – direct-response microservice example (generic image conversion)
-- `client/` – Python SDK and CLI helpers (multipart upload, directory ingestion, job polling)
+- `client/` – Python library for interacting with IFCB processing microservices (multipart upload, directory ingestion, job polling)
 
 ## Quick Start
 

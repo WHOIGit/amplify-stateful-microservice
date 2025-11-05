@@ -1,4 +1,4 @@
-"""IFCB Microservice Base - shared infrastructure for IFCB batch jobs and generic direct-response services."""
+"""Amplify Microservice Base - shared infrastructure for IFCB batch jobs and generic direct-response services."""
 
 from .processor import BaseProcessor, DirectAction
 from .api import create_app, ServiceConfig
