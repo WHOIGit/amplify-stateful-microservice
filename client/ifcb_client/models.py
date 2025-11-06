@@ -51,7 +51,7 @@ class FeaturesOutput(BaseModel):
     """Features output information."""
     format: Literal["parquet"]
     uris: List[str]
-    schema: Dict[str, str]
+    column_schema: Dict[str, str]
 
 
 class MasksShard(BaseModel):

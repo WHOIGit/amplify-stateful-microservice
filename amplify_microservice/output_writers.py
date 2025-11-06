@@ -269,7 +269,7 @@ class ResultsWriter:
         """
         # Write features to S3
         feature_uris = self.features_writer.write_to_s3()
-        feature_schema = self.features_writer.get_schema()
+        column_schema = self.features_writer.get_schema()
 
         # Finalize masks
         mask_shards = self.masks_writer.finalize()
@@ -280,7 +280,7 @@ class ResultsWriter:
             'features': {
                 'format': 'parquet',
                 'uris': feature_uris,
-                'schema': feature_schema,
+                'column_schema': column_schema,
             },
             'masks': {
                 'format': 'webdataset',

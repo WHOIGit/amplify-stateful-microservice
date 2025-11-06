@@ -147,7 +147,7 @@ class FeaturesOutput(BaseModel):
     """Information about features output."""
     format: Literal["parquet"] = Field(default="parquet")
     uris: List[str] = Field(..., description="List of S3 URIs for Parquet files")
-    schema: Dict[str, str] = Field(..., description="Column name to type mapping")
+    column_schema: Dict[str, str] = Field(..., description="Column name to type mapping")
 
 
 class MasksShard(BaseModel):
