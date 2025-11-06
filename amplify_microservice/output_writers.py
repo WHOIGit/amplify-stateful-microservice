@@ -5,17 +5,17 @@ import tarfile
 import json
 import tempfile
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, TYPE_CHECKING
 import logging
-
-import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from .storage import s3_client
 from .config import settings
+from ._optional import require_pandas, require_pyarrow
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class ParquetFeaturesWriter:
@@ -31,7 +31,7 @@ class ParquetFeaturesWriter:
         self.job_id = job_id
         self.features_data: List[Dict[str, Any]] = []
 
-    def add_bin_features(self, bin_id: str, features_df: pd.DataFrame):
+    def add_bin_features(self, bin_id: str, features_df: "pd.DataFrame"):
         """
         Add features for a single bin.
 
@@ -40,6 +40,7 @@ class ParquetFeaturesWriter:
             features_df: DataFrame with columns [roi_number, feature1, feature2, ...]
         """
         # Add bin_id column
+        pd = require_pandas()
         features_df = features_df.copy()
         features_df.insert(0, 'bin_id', bin_id)
 
@@ -59,6 +60,7 @@ class ParquetFeaturesWriter:
             return []
 
         # Convert to DataFrame
+        pd = require_pandas()
         df = pd.DataFrame(self.features_data)
 
         # Define S3 path
@@ -68,6 +70,7 @@ class ParquetFeaturesWriter:
 
         # Write to in-memory buffer as Parquet
         buffer = io.BytesIO()
+        pa, pq = require_pyarrow()
         table = pa.Table.from_pandas(df)
         pq.write_table(table, buffer)
 
@@ -90,6 +93,7 @@ class ParquetFeaturesWriter:
         if not self.features_data:
             return {}
 
+        pd = require_pandas()
         df = pd.DataFrame(self.features_data)
         schema = {}
         for col, dtype in df.dtypes.items():
@@ -232,7 +236,7 @@ class ResultsWriter:
         self.total_rois = 0
         self.total_masks = 0
 
-    def add_bin_results(self, bin_id: str, features_df: pd.DataFrame, masks: List[bytes]):
+    def add_bin_results(self, bin_id: str, features_df: "pd.DataFrame", masks: List[bytes]):
         """
         Add results for a single bin.
 

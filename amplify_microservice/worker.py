@@ -1,16 +1,17 @@
 """Background worker for processing IFCB jobs using pluggable processors."""
 
+from __future__ import annotations
+
 import asyncio
 import io
 import json
 import tempfile
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional, Callable, Any
+from typing import Dict, List, Optional, Callable, Any, TYPE_CHECKING
 import logging
 
-import pandas as pd
-from PIL import Image
+from ._optional import require_pandas, require_pillow_image
 
 from .processor import BaseProcessor
 from .jobs import job_store
@@ -18,6 +19,9 @@ from .storage import s3_client
 from .output_writers import ResultsWriter
 from .models import JobResult, FeaturesOutput, MasksOutput, MasksShard, JobCounts
 from .config import settings
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +48,9 @@ class JobProcessor:
         """
         try:
             logger.info(f"Starting processing for job {job_id}")
+
+            # Ensure required optional dependencies are present
+            require_pandas()
 
             # Update job status
             job_store.update_job(
@@ -279,7 +286,7 @@ class JobProcessor:
         bin_id: str,
         bin_files: Dict[str, str],
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
-    ) -> tuple[pd.DataFrame, List]:
+    ) -> tuple["pd.DataFrame", List]:
         """
         Process a bin using the algorithm-specific processor.
 
@@ -313,6 +320,7 @@ class JobProcessor:
 
         # Convert artifacts to bytes if needed
         artifacts_bytes = []
+        image_module = None
         for artifact in artifacts:
             if isinstance(artifact, bytes):
                 artifacts_bytes.append(artifact)
@@ -323,7 +331,9 @@ class JobProcessor:
                     # Convert to uint8 if needed
                     if artifact.dtype != np.uint8:
                         artifact = (artifact * 255).astype(np.uint8)
-                    img = Image.fromarray(artifact)
+                    if image_module is None:
+                        image_module = require_pillow_image()
+                    img = image_module.fromarray(artifact)
                 elif hasattr(artifact, 'save'):
                     # PIL Image
                     img = artifact

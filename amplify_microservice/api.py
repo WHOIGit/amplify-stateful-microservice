@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from fastapi import FastAPI, HTTPException, Response
 
 from .processor import BaseProcessor, DirectAction
-from .worker import create_worker_pool
 from .models import (
     HealthResponse,
     ErrorResponse,
@@ -85,7 +84,18 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
     service_description = config.description or f"IFCB {service_name} processing service"
 
     # Create worker pool with processor (only if async jobs enabled)
-    worker_pool = create_worker_pool(processor) if config.enable_async_jobs else None
+    worker_pool = None
+    if config.enable_async_jobs:
+        try:
+            from .worker import create_worker_pool  # Local import to avoid optional deps for direct-only services
+        except ModuleNotFoundError as exc:
+            missing = getattr(exc, "name", "optional dependency")
+            raise RuntimeError(
+                f"Async job support requires optional dependencies ({missing} is missing). "
+                "Install amplify-microservice[job-runtime] and retry."
+            ) from exc
+
+        worker_pool = create_worker_pool(processor)
 
     # Lifespan context manager for startup/shutdown
     @asynccontextmanager

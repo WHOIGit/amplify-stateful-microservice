@@ -1,12 +1,18 @@
 """Base processor interface for IFCB batch processors and direct-action utilities."""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-import pandas as pd
 from pydantic import BaseModel
+
+from ._optional import require_pandas
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @dataclass
@@ -52,7 +58,7 @@ class BaseProcessor(ABC):
         self,
         bin_id: str,
         bin_files: Dict[str, Path]
-    ) -> Tuple[pd.DataFrame, List[Any]]:
+    ) -> Tuple["pd.DataFrame", List[Any]]:
         """
         Process a single IFCB bin.
 
@@ -136,7 +142,7 @@ class BaseProcessor(ABC):
                 f"Available: {set(bin_files.keys())}"
             )
 
-    def validate_output(self, df: pd.DataFrame) -> None:
+    def validate_output(self, df: "pd.DataFrame") -> None:
         """
         Helper method to validate output DataFrame.
 
@@ -146,6 +152,11 @@ class BaseProcessor(ABC):
         Raises:
             ValueError: If DataFrame is invalid
         """
+        pd = require_pandas()
+
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError(f"Expected pandas DataFrame, got {type(df)}")
+
         if df.empty:
             raise ValueError("Output DataFrame is empty")
 

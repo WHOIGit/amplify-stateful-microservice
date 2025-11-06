@@ -60,6 +60,8 @@ The shared `amplify_microservice` package lets you wrap any algorithm in the sam
 
 4. **Package & deploy**: list dependencies in `pyproject.toml`, build a Docker image similar to the provided `Dockerfile`, and run under Uvicorn. The framework handles ingest endpoints, multipart uploads, background workers, and job state so you focus only on algorithm logic.
 
+Async job orchestration (workers, Parquet feature outputs, etc.) relies on optional dependencies (pandas, pyarrow, Pillow, numpy, scikit-stack). Install `amplify-microservice[job-runtime]` when you set `enable_async_jobs=True` or otherwise use the queued features pipeline. Direct-only services can stick to the base install.
+
 ## API Documentation
 
 All services expose health endpoints. Job-enabled services include ingest + job APIs, while direct services expose whatever `DirectAction` routes the processor registers.
