@@ -84,6 +84,20 @@ All services expose health endpoints. Job-enabled services include ingest + job 
 
 Direct services surface custom endpoints based on the `DirectAction` definitions returned by the processor. These routes can operate on IFCB or non-IFCB data and participate in OpenAPI docs automatically (see `/docs`).
 
+## Reverse Proxy Config
+
+Generate an Apache vhost snippet for any Amplify microservice:
+
+```bash
+python -m amplify_microservice.apache_conf \
+  --service white-balance \
+  --hostname white-balance.example.com \
+  --backend http://127.0.0.1:8015 \
+  --output apache/white-balance.conf
+```
+
+Add `--https` to emit an HTTPS VirtualHost (with placeholder cert paths). Supply `--path /api/white-balance/` if the service lives behind a prefix, or `--no-virtualhost` when you already manage the `<VirtualHost>` block and just want the proxy directives. The generated file can be dropped into `/etc/apache2/sites-available/` and enabled via `a2ensite`.
+
 Full API documentation available at `http://localhost:800X/docs` (FastAPI auto-generated).
 
 ## Available Services

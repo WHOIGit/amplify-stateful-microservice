@@ -5,6 +5,7 @@ from .api import create_app, ServiceConfig
 from .worker import create_worker_pool
 from .config import settings
 from .direct import fetch_s3_bytes, run_blocking, render_bytes
+from .apache_conf import ApacheConfigParams, generate_apache_vhost_config
 
 __version__ = "1.0.0"
 
@@ -18,4 +19,6 @@ __all__ = [
     "fetch_s3_bytes",
     "run_blocking",
     "render_bytes",
+    "ApacheConfigParams",
+    "generate_apache_vhost_config",
 ]
