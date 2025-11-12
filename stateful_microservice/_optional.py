@@ -13,7 +13,7 @@ def require_pandas():
     except ModuleNotFoundError as exc:
         raise ModuleNotFoundError(
             "pandas is required for IFCB job processing features. "
-            "Install amplify-microservice[job-runtime] to enable this functionality."
+            "Install pandas in the environment to enable this functionality."
         ) from exc
     return pd
 
@@ -27,7 +27,7 @@ def require_pyarrow():
     except ModuleNotFoundError as exc:
         raise ModuleNotFoundError(
             "pyarrow is required to write Parquet feature outputs. "
-            "Install amplify-microservice[job-runtime] to enable this functionality."
+            "Install pyarrow in the environment to enable this functionality."
         ) from exc
     return pa, pq
 
@@ -40,6 +40,6 @@ def require_pillow_image():
     except ModuleNotFoundError as exc:
         raise ModuleNotFoundError(
             "Pillow is required to serialize artifacts as PNGs. "
-            "Install amplify-microservice[job-runtime] to enable this functionality."
+            "Install Pillow in the environment to enable this functionality."
         ) from exc
     return Image

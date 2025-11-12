@@ -1,13 +1,12 @@
-"""FastAPI application factory for IFCB microservices."""
+"""FastAPI application factory for IFCB long-running microservices."""
 
 from contextlib import asynccontextmanager
-import inspect
 import logging
 from dataclasses import dataclass
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException
 
-from .processor import BaseProcessor, DirectAction
+from .processor import BaseProcessor
 from .models import (
     HealthResponse,
     ErrorResponse,
@@ -35,14 +34,12 @@ class ServiceConfig:
         version: Override service version (defaults to processor.version)
         description: Short description for generated docs
         enable_async_jobs: Whether to expose ingest + job APIs and start workers
-        enable_direct_actions: Whether processor will register direct-response routes
     """
 
     name: str | None = None
     version: str | None = None
     description: str | None = None
     enable_async_jobs: bool = True
-    enable_direct_actions: bool = False
 
 
 def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) -> FastAPI:
@@ -63,7 +60,7 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
         Configured FastAPI application
 
     Example:
-        >>> from amplify_microservice import create_app, BaseProcessor, ServiceConfig
+        >>> from stateful_microservice import create_app, BaseProcessor, ServiceConfig
         >>> class MyProcessor(BaseProcessor):
         ...     def process_bin(self, bin_id, bin_files):
         ...         # Algorithm implementation
@@ -91,8 +88,8 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
         except ModuleNotFoundError as exc:
             missing = getattr(exc, "name", "optional dependency")
             raise RuntimeError(
-                f"Async job support requires optional dependencies ({missing} is missing). "
-                "Install amplify-microservice[job-runtime] and retry."
+                f"Async job support requires runtime dependencies ({missing} is missing). "
+                "Ensure pandas, numpy, Pillow, pyarrow, and aiohttp are installed and retry."
             ) from exc
 
         worker_pool = create_worker_pool(processor)
@@ -311,51 +308,5 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
             except Exception as e:
                 logger.error(f"Failed to list jobs: {e}", exc_info=True)
                 raise HTTPException(status_code=500, detail=f"Failed to list jobs: {str(e)}")
-
-    if config.enable_direct_actions:
-        actions = processor.get_direct_actions()
-        if not actions:
-            logger.warning(
-                "Direct actions enabled but processor returned no routes. "
-                "Set enable_direct_actions=False or implement get_direct_actions()."
-            )
-
-        def make_endpoint(action: DirectAction):
-            RequestModel = action.request_model
-
-            async def endpoint(payload: RequestModel):
-                handler = action.handler
-                if getattr(handler, "__self__", None) is processor:
-                    call_result = handler(payload)
-                else:
-                    call_result = handler(processor, payload)
-
-                result = call_result
-                if inspect.isawaitable(result):
-                    result = await result
-                if isinstance(result, Response):
-                    return result
-                if action.media_type and isinstance(result, (bytes, bytearray, memoryview)):
-                    return Response(content=bytes(result), media_type=action.media_type)
-                return result
-
-            return endpoint
-
-        for action in actions:
-            logger.info(f"Registering direct action '{action.name}' at {action.path}")
-            endpoint = make_endpoint(action)
-
-            route_kwargs = {
-                "methods": list(action.methods),
-                "response_model": action.response_model,
-                "summary": action.summary,
-                "description": action.description,
-                "tags": list(action.tags) if action.tags else None,
-            }
-
-            # Remove None entries so FastAPI uses defaults
-            route_kwargs = {k: v for k, v in route_kwargs.items() if v is not None}
-
-            app.api_route(action.path, **route_kwargs)(endpoint)
 
     return app

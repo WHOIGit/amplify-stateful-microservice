@@ -1,7 +1,7 @@
 [project]
-name = "amplify-microservice"
+name = "amplify-stateful"
 version = "1.0.0"
-description = "Reusable microservice framework, features service examples and Python client"
+description = "Microservice library for building stateful microservices"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -10,21 +10,11 @@ dependencies = [
     "pydantic>=2.9.0",
     "pydantic-settings>=2.5.0",
     "boto3>=1.35.0",
-]
-
-[project.optional-dependencies]
-job-runtime = [
-    "pillow>=11.0.0",
+    "aiohttp>=3.10.0",
     "pandas>=2.2.0",
     "pyarrow>=18.0.0",
     "numpy>=1.26.0",
-    "scipy>=1.13.0",
-    "scikit-image>=0.24.0",
-    "scikit-learn>=1.5.0",
-]
-client = [
-    "httpx>=0.27.0",
-    "boto3>=1.35.0",
+    "pillow>=11.0.0",
 ]
 
 [build-system]
@@ -33,8 +23,5 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = [
-    "amplify_microservice",
-    "client/ifcb_client",
-    "examples/ifcb_features_service",
-    "examples/image_format_conversion_service",
+    "stateful_microservice",
 ]

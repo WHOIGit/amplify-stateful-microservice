@@ -5,7 +5,7 @@
 Copy the example config:
 
 ```bash
-cp examples/ifcb_features_service/.env.example examples/ifcb_features_service/.env
+cp .env.example .env
 ```
 
 Edit `.env` with your S3 settings:
@@ -14,14 +14,12 @@ Edit `.env` with your S3 settings:
 S3_ENDPOINT_URL=http://your-s3-server:9000
 S3_ACCESS_KEY=your-access-key
 S3_SECRET_KEY=your-secret-key
-S3_BUCKET=ifcb-features
+S3_BUCKET=your-s3-bucket
 ```
 
 ### 2. Run with Docker Compose
 
 ```bash
-cd examples/ifcb_features_service
-
 # Build and start the features service
 docker compose up -d
 

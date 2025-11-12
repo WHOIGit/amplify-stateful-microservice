@@ -1,9 +1,8 @@
-"""Amplify Microservice Base - shared infrastructure for IFCB batch jobs and generic direct-response services."""
+"""Stateful Microservice Toolkit - reusable infrastructure for long-running batch jobs."""
 
-from .processor import BaseProcessor, DirectAction
+from .processor import BaseProcessor
 from .api import create_app, ServiceConfig
 from .config import settings
-from .direct import fetch_s3_bytes, run_blocking, render_bytes
 from .apache_conf import ApacheConfigParams, generate_apache_vhost_config
 
 __version__ = "1.0.0"
@@ -18,14 +17,10 @@ def create_worker_pool(*args, **kwargs):
 
 __all__ = [
     "BaseProcessor",
-    "DirectAction",
     "create_app",
     "create_worker_pool",
     "ServiceConfig",
     "settings",
-    "fetch_s3_bytes",
-    "run_blocking",
-    "render_bytes",
     "ApacheConfigParams",
     "generate_apache_vhost_config",
 ]

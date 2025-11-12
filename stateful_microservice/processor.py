@@ -1,13 +1,10 @@
-"""Base processor interface for IFCB batch processors and direct-action utilities."""
+"""Base processor interface for IFCB batch processors."""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
-
-from pydantic import BaseModel
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from ._optional import require_pandas
 
@@ -15,43 +12,8 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-@dataclass
-class DirectAction:
-    """
-    Definition of a direct-response API route backed by a processor method.
-
-    Attributes:
-        name: Short identifier used for logging and OpenAPI docs.
-        path: FastAPI route path (e.g., "/transform").
-        handler: Callable invoked with the processor instance and validated payload.
-        request_model: Pydantic model for request validation.
-        response_model: Optional Pydantic model for response serialization.
-        methods: HTTP methods to expose (defaults to POST).
-        summary: Optional OpenAPI summary.
-        description: Optional longer description.
-        tags: Optional OpenAPI tags.
-        media_type: Optional override for response media type.
-    """
-
-    name: str
-    path: str
-    handler: Callable[["BaseProcessor", BaseModel], Awaitable[Any] | Any]
-    request_model: type[BaseModel]
-    response_model: type[BaseModel] | None = None
-    methods: tuple[str, ...] = ("POST",)
-    summary: str | None = None
-    description: str | None = None
-    tags: tuple[str, ...] | None = None
-    media_type: str | None = None
-
-
 class BaseProcessor(ABC):
-    """Shared hook point for queued IFCB jobs and generic direct actions.
-
-    - Batch/IFCB services implement :meth:`process_bin` and may also expose direct routes.
-    - Pure direct-response utilities can rely solely on :meth:`get_direct_actions` and
-      leave :meth:`process_bin` unimplemented (raise NotImplementedError).
-    """
+    """Shared hook point for queued IFCB jobs."""
 
     @abstractmethod
     def process_bin(
@@ -199,15 +161,4 @@ class BaseProcessor(ABC):
         payload.update(data)
         callback(payload)
 
-    # ==========================================================================
-    # Direct Actions
-    # ==========================================================================
-
-    def get_direct_actions(self) -> List[DirectAction]:
-        """
-        Return the list of direct-response actions provided by this processor.
-
-        Override in subclasses to expose synchronous microservice endpoints.
-        Default: no direct actions.
-        """
-        return []
+    # Stateless action support intentionally removed for jobs-only package.
