@@ -181,7 +181,6 @@ class IFCBClient:
         self,
         manifest_uri: Optional[str] = None,
         manifest_inline: Optional[Manifest] = None,
-        parameters: Optional[Dict] = None,
     ) -> JobSubmitResponse:
         """
         Submit a processing job.
@@ -191,7 +190,6 @@ class IFCBClient:
         Args:
             manifest_uri: S3 URI to manifest file
             manifest_inline: Inline manifest data
-            parameters: Algorithm-specific parameters
 
         Returns:
             Job submission response with job_id
@@ -225,9 +223,6 @@ class IFCBClient:
                 payload["manifest_inline"] = manifest_inline.model_dump()
             else:
                 payload["manifest_inline"] = manifest_inline
-
-        if parameters:
-            payload["parameters"] = parameters
 
         response = self._request("POST", "/jobs", json=payload)
         return JobSubmitResponse(**response.json())

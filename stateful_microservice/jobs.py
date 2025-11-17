@@ -28,7 +28,6 @@ class JobStore:
         self,
         manifest_uri: Optional[str] = None,
         manifest_data: Optional[Dict] = None,
-        parameters: Optional[Dict] = None,
         job_id_override: Optional[str] = None,
     ) -> str:
         """
@@ -37,7 +36,6 @@ class JobStore:
         Args:
             manifest_uri: S3 URI to manifest file
             manifest_data: Inline manifest data
-            parameters: Processing parameters
             job_id_override: Use an existing job_id (e.g., ingest-created)
 
         Returns:
@@ -69,7 +67,6 @@ class JobStore:
             existing_metadata.update({
                 'manifest_uri': manifest_uri,
                 'manifest_data': manifest_data,
-                'parameters': parameters or {},
             })
             self._upload_metadata[job_id] = existing_metadata
 

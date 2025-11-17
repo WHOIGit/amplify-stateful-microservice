@@ -104,11 +104,6 @@ class JobManifest(BaseModel):
 # Job Models
 # ============================================================================
 
-class JobParameters(BaseModel):
-    """Optional processing parameters."""
-    batch_size: Optional[int] = Field(32, description="Batch size for processing")
-
-
 class JobSubmitRequest(BaseModel):
     """Request to submit a processing job."""
     manifest_uri: Optional[str] = Field(None, description="S3 URI pointing to a manifest JSON/JSONL file")
@@ -116,7 +111,6 @@ class JobSubmitRequest(BaseModel):
         None,
         description="Inline manifest (useful for testing or small jobs)",
     )
-    parameters: Optional[JobParameters] = Field(default_factory=JobParameters)
 
 
 class JobSubmitResponse(BaseModel):

@@ -150,7 +150,6 @@ class IngestService:
             if not job_store.get_job(job_id):
                 job_store.create_job(
                     manifest_data=manifest_data,
-                    parameters={},
                     job_id_override=job_id,
                 )
                 logger.info(f"All files ready for job {job_id}; job queued for processing")

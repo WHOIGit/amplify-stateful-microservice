@@ -109,7 +109,6 @@ class AsyncIFCBClient:
         self,
         manifest_uri: Optional[str] = None,
         manifest_inline: Optional[Manifest] = None,
-        parameters: Optional[Dict] = None,
     ) -> JobSubmitResponse:
         """Submit a processing job."""
         if not manifest_uri and not manifest_inline:
@@ -128,9 +127,6 @@ class AsyncIFCBClient:
                 payload["manifest_inline"] = manifest_inline.model_dump()
             else:
                 payload["manifest_inline"] = manifest_inline
-
-        if parameters:
-            payload["parameters"] = parameters
 
         response = await self._request("POST", "/jobs", json=payload)
         return JobSubmitResponse(**response.json())
