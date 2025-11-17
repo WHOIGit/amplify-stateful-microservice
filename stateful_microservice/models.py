@@ -117,7 +117,6 @@ class JobSubmitRequest(BaseModel):
         description="Inline manifest (useful for testing or small jobs)",
     )
     parameters: Optional[JobParameters] = Field(default_factory=JobParameters)
-    idempotency_key: Optional[str] = Field(None, description="Idempotency key to prevent duplicate processing")
 
 
 class JobSubmitResponse(BaseModel):

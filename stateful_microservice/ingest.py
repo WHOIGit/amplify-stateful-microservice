@@ -151,7 +151,6 @@ class IngestService:
                 job_store.create_job(
                     manifest_data=manifest_data,
                     parameters={},
-                    idempotency_key=None,
                     job_id_override=job_id,
                 )
                 logger.info(f"All files ready for job {job_id}; job queued for processing")

@@ -109,7 +109,6 @@ class AsyncIFCBClient:
         self,
         manifest_uri: Optional[str] = None,
         manifest_inline: Optional[Manifest] = None,
-        idempotency_key: Optional[str] = None,
         parameters: Optional[Dict] = None,
     ) -> JobSubmitResponse:
         """Submit a processing job."""
@@ -129,9 +128,6 @@ class AsyncIFCBClient:
                 payload["manifest_inline"] = manifest_inline.model_dump()
             else:
                 payload["manifest_inline"] = manifest_inline
-
-        if idempotency_key:
-            payload["idempotency_key"] = idempotency_key
 
         if parameters:
             payload["parameters"] = parameters

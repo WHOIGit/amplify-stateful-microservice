@@ -193,7 +193,6 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
                 manifest_uri=request.manifest_uri,
                 manifest_data=manifest_data,
                 parameters=request.parameters.model_dump() if request.parameters else {},
-                idempotency_key=request.idempotency_key,
             )
 
             job = job_store.get_job(job_id)

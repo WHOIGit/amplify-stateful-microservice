@@ -181,7 +181,6 @@ class IFCBClient:
         self,
         manifest_uri: Optional[str] = None,
         manifest_inline: Optional[Manifest] = None,
-        idempotency_key: Optional[str] = None,
         parameters: Optional[Dict] = None,
     ) -> JobSubmitResponse:
         """
@@ -192,7 +191,6 @@ class IFCBClient:
         Args:
             manifest_uri: S3 URI to manifest file
             manifest_inline: Inline manifest data
-            idempotency_key: Key to prevent duplicate processing
             parameters: Algorithm-specific parameters
 
         Returns:
@@ -227,9 +225,6 @@ class IFCBClient:
                 payload["manifest_inline"] = manifest_inline.model_dump()
             else:
                 payload["manifest_inline"] = manifest_inline
-
-        if idempotency_key:
-            payload["idempotency_key"] = idempotency_key
 
         if parameters:
             payload["parameters"] = parameters
