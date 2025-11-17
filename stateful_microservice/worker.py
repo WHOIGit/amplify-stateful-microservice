@@ -121,6 +121,34 @@ class JobProcessor:
                 error=str(e),
             )
 
+    def _parse_s3_uri(self, uri: str) -> tuple[str, str]:
+        """
+        Parse and validate an S3 URI.
+
+        Args:
+            uri: S3 URI (s3://bucket/key)
+
+        Returns:
+            Tuple of (bucket, key)
+
+        Raises:
+            ValueError: If URI is invalid or bucket doesn't match configured bucket
+        """
+        if not uri.startswith('s3://'):
+            raise ValueError(f"Invalid S3 URI: {uri}")
+
+        parts = uri[5:].split('/', 1)
+        if len(parts) != 2:
+            raise ValueError(f"Invalid S3 URI format: {uri}")
+
+        bucket, key = parts
+        if bucket != s3_client.bucket:
+            raise ValueError(
+                f"Bucket {bucket} does not match configured bucket {s3_client.bucket}"
+            )
+
+        return bucket, key
+
     async def _load_manifest(self, metadata: Dict) -> Dict:
         """
         Load manifest from S3 URI or inline data.
@@ -140,16 +168,7 @@ class JobProcessor:
 
         if manifest_uri:
             # Download from S3
-            if not manifest_uri.startswith('s3://'):
-                raise ValueError(f"Invalid S3 URI: {manifest_uri}")
-
-            parts = manifest_uri[5:].split('/', 1)
-            if len(parts) != 2:
-                raise ValueError(f"Invalid S3 URI format: {manifest_uri}")
-
-            bucket, key = parts
-            if bucket != s3_client.bucket:
-                raise ValueError(f"Manifest bucket {bucket} does not match configured bucket {s3_client.bucket}")
+            bucket, key = self._parse_s3_uri(manifest_uri)
 
             # Download manifest
             buffer = io.BytesIO()
@@ -173,17 +192,7 @@ class JobProcessor:
         local_paths: List[str] = []
 
         for uri in file_uris:
-            if not uri.startswith('s3://'):
-                raise ValueError(f"Invalid S3 URI: {uri}")
-
-            parts = uri[5:].split('/', 1)
-            if len(parts) != 2:
-                raise ValueError(f"Invalid S3 URI format: {uri}")
-            bucket, key = parts
-            if bucket != s3_client.bucket:
-                raise ValueError(
-                    f"Input bucket {bucket} does not match configured bucket {s3_client.bucket}"
-                )
+            bucket, key = self._parse_s3_uri(uri)
 
             dest_path = temp_dir / Path(key).name
             with open(dest_path, 'wb') as f:
