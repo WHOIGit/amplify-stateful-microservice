@@ -40,8 +40,6 @@ class IngestService:
         job_id = str(uuid.uuid4())
         logger.info(f"Starting ingest for {len(request.files)} file(s), job {job_id}")
 
-        job_store.init_ingest_job(job_id)
-
         files_info: List[FileUploadInfo] = []
 
         for file_spec in request.files:

@@ -104,10 +104,6 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
         lifespan=lifespan,
     )
 
-    # Expose helpful references on app state
-    app.state.processor = processor
-    app.state.service_config = config
-
     # ============================================================================
     # Health & Status Endpoints
     # ============================================================================

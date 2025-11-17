@@ -153,14 +153,6 @@ class JobStore:
     # Ingest Metadata Helpers
     # ==========================================================================
 
-    def init_ingest_job(self, job_id: str):
-        """Initialize ingest metadata for a job."""
-        with self._lock:
-            metadata = self._upload_metadata.get(job_id, {})
-            metadata['uploads'] = {}
-            metadata['file_order'] = []
-            self._upload_metadata[job_id] = metadata
-
     def store_upload_info(self, job_id: str, file_id: str, upload_info: Dict):
         """
         Store temporary upload information.
@@ -173,11 +165,8 @@ class JobStore:
         with self._lock:
             metadata = self._upload_metadata.setdefault(job_id, {})
             uploads = metadata.setdefault('uploads', {})
-            file_order = metadata.setdefault('file_order', [])
 
             uploads[file_id] = upload_info
-            if file_id not in file_order:
-                file_order.append(file_id)
 
     def get_upload_info(self, job_id: str, file_id: str) -> Optional[Dict]:
         """Get stored upload information for a file."""
@@ -213,12 +202,11 @@ class JobStore:
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
             uploads = metadata.get('uploads', {})
-            file_order = metadata.get('file_order', list(uploads.keys()))
 
             uris = []
-            for file_id in file_order:
-                info = uploads.get(file_id)
-                if info and info.get('completed'):
+            for file_id in uploads.keys():
+                info = uploads[file_id]
+                if info.get('completed'):
                     uris.append(s3_client.get_object_url(info['s3_key']))
             return uris
 
