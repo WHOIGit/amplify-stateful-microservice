@@ -2,7 +2,7 @@
 
 This repo captures everything required to run long-running, queue-backed processing APIs. It contains the generic production library (`stateful_microservice/`), a reference IFCB features processor (`examples/ifcb_features_service/`) that demonstrates how to plug in domain logic, and the accompanying Python client used by the IFCB tooling to submit ingest requests and poll for job completion.
 
-## Developing a New Jobs Microservice
+## Developing a New Microservice
 
 1. Implement `stateful_microservice.BaseProcessor` for your algorithm. `process_input` receives a `JobInput` containing the job ID plus the list of downloaded local file paths. Return an instance of your processor’s `result_model` after you’ve uploaded whatever outputs/artifacts your service produces (return `None` only if you’re deferring completion until a later invocation).
    - Inspect `job_input.local_paths` (string paths) and decide how to open/process each file for your domain. The worker downloads all files for an input into a temporary directory and cleans it up after `process_input` returns.
