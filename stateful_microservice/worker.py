@@ -7,12 +7,10 @@ import shutil
 import tempfile
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional, Callable, Any, Tuple, Type
+from typing import Dict, List, Tuple
 import logging
 
-from pydantic import BaseModel
-
-from .processor import BaseProcessor, JobInput, DefaultResult
+from .processor import BaseProcessor, JobInput
 from .jobs import job_store
 from .storage import s3_client
 from .models import JobResult
@@ -76,18 +74,29 @@ class JobProcessor:
             job_input, temp_dir = await self._prepare_job_input(job_id, file_uris)
             progress_callback({"stage": "download", "message": "complete"})
 
-            # Process using the algorithm-specific processor (single call)
-            progress_callback({"stage": "processing", "percent": 0.0})
-            processor_result = await self._process_input(job_input, progress_callback=progress_callback)
-            progress_callback({"stage": "processing", "percent": 100.0})
+            # Set up progress reporting for processor
+            self.processor.set_progress_callback(progress_callback)
 
-            # Clean up temporary files
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            try:
+                # Process using the algorithm-specific processor
+                progress_callback({"stage": "processing", "percent": 0.0})
+                loop = asyncio.get_event_loop()
+                processor_result = await loop.run_in_executor(
+                    None,
+                    self.processor.process_input,
+                    job_input,
+                )
+                progress_callback({"stage": "processing", "percent": 100.0})
+            finally:
+                self.processor.set_progress_callback(None)
+                # Clean up temporary files
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
-            if processor_result is None:
-                processor_result = DefaultResult()
-
-            job_result = self._convert_to_job_result(job_id, processor_result)
+            # Wrap result
+            job_result = JobResult(
+                job_id=job_id,
+                payload=processor_result.model_dump(),
+            )
 
             # Update job as completed
             job_store.update_job(
@@ -111,28 +120,6 @@ class JobProcessor:
                 completed_at=datetime.utcnow(),
                 error=str(e),
             )
-
-    def _convert_to_job_result(self, job_id: str, payload: Optional[BaseModel]) -> JobResult:
-        """
-        Normalize processor output into a JobResult.
-
-        Processors can return:
-            - An instance of `processor.result_model`
-            - None (falls back to `DefaultResult`)
-        """
-        result_model: Type[BaseModel] = getattr(self.processor, "result_model", DefaultResult)
-
-        if payload is None:
-            model_instance = result_model()
-        else:
-            if not isinstance(payload, result_model):
-                raise TypeError(f"Processor returned {type(payload)}, expected {result_model}.")
-            model_instance = payload
-
-        return JobResult(
-            job_id=job_id,
-            payload=model_instance.model_dump(),
-        )
 
     async def _load_manifest(self, metadata: Dict) -> Dict:
         """
@@ -210,47 +197,6 @@ class JobProcessor:
             local_paths=local_paths,
         )
         return job_input, temp_dir
-
-    async def _process_input(
-        self,
-        job_input: JobInput,
-        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
-    ) -> Optional[BaseModel]:
-        """
-        Process an input payload using the algorithm-specific processor.
-
-        Args:
-            job_input: Runtime input context containing metadata and file references
-            progress_callback: Optional callback for progress updates
-
-        Returns:
-            Optional instance of the processor’s `result_model`.
-        """
-        loop = asyncio.get_event_loop()
-        if progress_callback:
-            self.processor.set_progress_callback(progress_callback)
-        else:
-            self.processor.set_progress_callback(None)
-
-        try:
-            result = await loop.run_in_executor(
-                None,
-                self.processor.process_input,
-                job_input,
-            )
-        finally:
-            self.processor.set_progress_callback(None)
-
-        if result is None:
-            return None
-
-        if not isinstance(result, BaseModel):
-            raise TypeError(
-                f"Processors must return instances of their result_model (or None). Got {type(result)}."
-            )
-
-        logger.info(f"Processor emitted job-level results for job {job_input.job_id}")
-        return result
 
 
 class WorkerPool:

@@ -16,47 +16,41 @@ class JobInput:
 
 
 class DefaultResult(BaseModel):
-    """Empty result model used when processors don't define their own."""
+    """Default result model when processors don't define their own."""
 
     status: str = "ok"
 
 
 class BaseProcessor(ABC):
-    """Shared hook point for queued long-running jobs."""
+    """Base class for job processors."""
 
-    result_model: Type[BaseModel] = DefaultResult
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Processor name (e.g., 'features', 'classifier')."""
+        raise NotImplementedError
+
+    @property
+    def version(self) -> str:
+        """Processor version string."""
+        return "1.0.0"
 
     @abstractmethod
-    def process_input(
-        self,
-        job_input: JobInput,
-    ) -> Optional[BaseModel]:
+    def process_input(self, job_input: JobInput) -> BaseModel:
         """
-        Process a single logical input payload and return structured results.
+        Process job input files and return results.
 
         Args:
-            job_input: Runtime input data containing the job ID and local file paths
+            job_input: Job context with local file paths
 
         Returns:
-            Instance of `result_model`. Return None to defer emitting job-level
-            results until later inputs have been processed.
+            Result as a Pydantic BaseModel (custom or DefaultResult)
 
         Raises:
             ValueError: If input cannot be processed
             FileNotFoundError: If required files are missing
         """
         raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Processor name (e.g., 'features', 'classifier', 'thumbnailer')."""
-        raise NotImplementedError
-
-    @property
-    def version(self) -> str:
-        """Processor version string (override as needed)."""
-        return "1.0.0"
 
     # ==========================================================================
     # Progress Reporting
