@@ -29,7 +29,6 @@ class JobStore:
         manifest_uri: Optional[str] = None,
         manifest_data: Optional[Dict] = None,
         parameters: Optional[Dict] = None,
-        callback_url: Optional[str] = None,
         idempotency_key: Optional[str] = None,
         job_id_override: Optional[str] = None,
     ) -> str:
@@ -40,7 +39,6 @@ class JobStore:
             manifest_uri: S3 URI to manifest file
             manifest_data: Inline manifest data
             parameters: Processing parameters
-            callback_url: Webhook URL for completion
             idempotency_key: Optional idempotency key
             job_id_override: Use an existing job_id (e.g., ingest-created)
 
@@ -83,7 +81,6 @@ class JobStore:
                 'manifest_uri': manifest_uri,
                 'manifest_data': manifest_data,
                 'parameters': parameters or {},
-                'callback_url': callback_url,
                 'idempotency_key': idempotency_key,
             })
             self._upload_metadata[job_id] = existing_metadata

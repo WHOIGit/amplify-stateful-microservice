@@ -175,7 +175,6 @@ class IngestService:
                 job_store.create_job(
                     manifest_data=manifest_data,
                     parameters={},
-                    callback_url=None,
                     idempotency_key=None,
                     job_id_override=job_id,
                 )

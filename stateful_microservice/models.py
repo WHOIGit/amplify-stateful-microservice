@@ -149,7 +149,6 @@ class JobSubmitRequest(BaseModel):
         description="Inline manifest (useful for testing or small jobs)",
     )
     parameters: Optional[JobParameters] = Field(default_factory=JobParameters)
-    callback_url: Optional[str] = Field(None, description="Webhook URL for completion notification")
     idempotency_key: Optional[str] = Field(None, description="Idempotency key to prevent duplicate processing")
 
 

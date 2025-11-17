@@ -109,7 +109,6 @@ class AsyncIFCBClient:
         self,
         manifest_uri: Optional[str] = None,
         manifest_inline: Optional[Manifest] = None,
-        callback_url: Optional[str] = None,
         idempotency_key: Optional[str] = None,
         parameters: Optional[Dict] = None,
     ) -> JobSubmitResponse:
@@ -130,9 +129,6 @@ class AsyncIFCBClient:
                 payload["manifest_inline"] = manifest_inline.model_dump()
             else:
                 payload["manifest_inline"] = manifest_inline
-
-        if callback_url:
-            payload["callback_url"] = callback_url
 
         if idempotency_key:
             payload["idempotency_key"] = idempotency_key

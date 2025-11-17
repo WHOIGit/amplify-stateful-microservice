@@ -194,7 +194,6 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
                 manifest_uri=request.manifest_uri,
                 manifest_data=manifest_data,
                 parameters=request.parameters.model_dump() if request.parameters else {},
-                callback_url=request.callback_url,
                 idempotency_key=request.idempotency_key,
             )
 

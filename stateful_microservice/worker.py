@@ -161,11 +161,6 @@ class JobProcessor:
 
             logger.info(f"Job {job_id} completed successfully")
 
-            # Send webhook if configured
-            callback_url = metadata.get('callback_url')
-            if callback_url:
-                await self._send_webhook(callback_url, job_result)
-
         except Exception as e:
             logger.error(f"Job {job_id} failed: {e}", exc_info=True)
             job_store.update_job(
@@ -328,30 +323,6 @@ class JobProcessor:
         if input_id:
             return str(input_id)
         return f"input-{index}"
-
-    async def _send_webhook(self, callback_url: str, job_result: JobResult):
-        """
-        Send webhook notification for completed job.
-
-        Args:
-            callback_url: Webhook URL
-            job_result: Job result
-        """
-        try:
-            import aiohttp
-
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    callback_url,
-                    json=job_result.model_dump(),
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as response:
-                    if response.status == 200:
-                        logger.info(f"Webhook sent successfully to {callback_url}")
-                    else:
-                        logger.warning(f"Webhook returned status {response.status}")
-        except Exception as e:
-            logger.error(f"Failed to send webhook to {callback_url}: {e}")
 
 
 class WorkerPool:

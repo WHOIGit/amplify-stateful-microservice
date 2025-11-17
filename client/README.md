@@ -189,7 +189,7 @@ for category, files in downloads.items():
 **Methods:**
 
 - `health()` - Check service health
-- `submit_job(manifest_uri=..., manifest_inline=..., callback_url=..., parameters=...)` - Submit job
+- `submit_job(manifest_uri=..., manifest_inline=..., parameters=...)` - Submit job
 - `get_job(job_id)` - Get job status
 - `list_jobs(limit=50)` - List recent jobs
 - `wait_for_job(job_id, poll_interval=5, timeout=3600)` - Poll until complete
