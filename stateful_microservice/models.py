@@ -114,21 +114,12 @@ class IngestCompleteResponse(BaseModel):
 # Manifest Models
 # ============================================================================
 
-class InputManifestEntry(BaseModel):
-    """Single logical input in a manifest."""
-    input_id: str = Field(
-        ...,
-        description="Input identifier",
-    )
-    files: List[str] = Field(..., description="List of S3 URIs (s3://bucket/key)", min_length=1)
-    sha256: Optional[str] = Field(None, description="Optional checksum for the entire input payload")
-
-
 class JobManifest(BaseModel):
-    """Collection of inputs to process."""
-    inputs: List[InputManifestEntry] = Field(
+    """List of files to process in a job."""
+    files: List[str] = Field(
         ...,
-        description="List of inputs that compose the job",
+        description="List of S3 URIs (s3://bucket/key) to process",
+        min_length=1,
     )
 
 

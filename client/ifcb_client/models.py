@@ -72,14 +72,6 @@ class JobSubmitResponse(BaseModel):
     created_at: datetime
 
 
-class BinManifestEntry(BaseModel):
-    """Single bin entry in a manifest."""
-    bin_id: str
-    files: List[str]
-    bytes: int
-    sha256: Optional[str] = None
-
-
 class Manifest(BaseModel):
-    """Collection of bins to process."""
-    bins: List[BinManifestEntry]
+    """List of files to process in a job."""
+    files: List[str]

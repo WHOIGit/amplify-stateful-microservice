@@ -1,11 +1,11 @@
 """Async usage example for IFCB client."""
 
 import asyncio
-from ifcb_client import AsyncIFCBClient, Manifest, BinManifestEntry
+from ifcb_client import AsyncIFCBClient, Manifest
 
 
 async def main():
-    """Process multiple bins concurrently."""
+    """Process multiple jobs concurrently."""
 
     # Create async client
     async with AsyncIFCBClient("http://localhost:8001") as client:
@@ -15,26 +15,27 @@ async def main():
         print(f"Service: {health.status} (v{health.version})")
 
         # Submit multiple jobs concurrently
-        bins = [
-            "D20230101T120000_IFCB123",
-            "D20230101T130000_IFCB123",
-            "D20230101T140000_IFCB123",
+        file_sets = [
+            [
+                "s3://ifcb-features/data/D20230101T120000_IFCB123.adc",
+                "s3://ifcb-features/data/D20230101T120000_IFCB123.roi",
+                "s3://ifcb-features/data/D20230101T120000_IFCB123.hdr",
+            ],
+            [
+                "s3://ifcb-features/data/D20230101T130000_IFCB123.adc",
+                "s3://ifcb-features/data/D20230101T130000_IFCB123.roi",
+                "s3://ifcb-features/data/D20230101T130000_IFCB123.hdr",
+            ],
+            [
+                "s3://ifcb-features/data/D20230101T140000_IFCB123.adc",
+                "s3://ifcb-features/data/D20230101T140000_IFCB123.roi",
+                "s3://ifcb-features/data/D20230101T140000_IFCB123.hdr",
+            ],
         ]
 
         tasks = []
-        for bin_id in bins:
-            manifest = Manifest(bins=[
-                BinManifestEntry(
-                    bin_id=bin_id,
-                    files=[
-                        f"s3://ifcb-features/data/{bin_id}.adc",
-                        f"s3://ifcb-features/data/{bin_id}.roi",
-                        f"s3://ifcb-features/data/{bin_id}.hdr",
-                    ],
-                    bytes=5000000,
-                )
-            ])
-
+        for files in file_sets:
+            manifest = Manifest(files=files)
             task = client.submit_job(manifest_inline=manifest)
             tasks.append(task)
 
@@ -54,7 +55,7 @@ async def main():
         print("\nResults:")
         for result in results:
             if result.status == "completed":
-                print(f"✓ {result.job_id}: {result.result.counts.rois} ROIs")
+                print(f"✓ {result.job_id}: completed")
             else:
                 print(f"✗ {result.job_id}: {result.error}")
 

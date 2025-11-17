@@ -58,90 +58,36 @@ class JobProcessor:
 
             # Get manifest
             manifest = await self._load_manifest(metadata)
-            manifest_inputs = manifest.get('inputs') or []
-            total_inputs = len(manifest_inputs)
+            file_uris = manifest.get('files') or []
+            if not file_uris:
+                raise ValueError(f"No files provided in manifest for job {job_id}")
 
-            def make_progress_emitter(current_index: int, input_id: str):
-                def emit(partial: Dict):
-                    stage = partial.get("stage", "processing")
-                    segment_percent = partial.get("percent")
-
-                    job_percent = None
-                    if total_inputs:
-                        if segment_percent is not None:
-                            job_percent = ((current_index - 1) + (segment_percent / 100.0)) / total_inputs * 100.0
-                        else:
-                            job_percent = ((current_index - 1) / total_inputs) * 100.0
-
-                    detail = {
-                        "input_id": input_id,
-                        "input_index": current_index,
-                        "input_total": total_inputs,
-                    }
-
-                    if segment_percent is not None:
-                        detail["input_percent"] = segment_percent
-
-                    for key, value in partial.items():
-                        if key not in {"stage", "percent"}:
-                            detail[key] = value
-
-                    payload = {
-                        "stage": stage,
-                        "percent": job_percent,
-                        "detail": detail,
-                    }
-
-                    job_store.update_job(
-                        job_id=job_id,
-                        progress=payload,
-                    )
-                return emit
-
-            # Process each input payload in the manifest
-            final_result_payload: Optional[Any] = None
-            for index, input_entry in enumerate(manifest_inputs, start=1):
-                input_id = self._resolve_input_id(input_entry, index)
-                file_uris = input_entry.get('files', [])
-                if not file_uris:
-                    raise ValueError(f"No file URIs provided for input {input_id}")
-
-                logger.info(f"Processing input {input_id} with {self.processor.name}")
-
-                emit_progress = make_progress_emitter(index, input_id)
-                emit_progress({"stage": "download", "message": "start"})
-
-                # Download input files from S3
-                job_input, temp_dir = await self._prepare_job_input(
-                    job_id,
-                    file_uris,
-                )
-                emit_progress({"stage": "download", "message": "complete"})
-
-                # Process using the algorithm-specific processor
-                emit_progress({"stage": "processing", "message": "executor_start", "percent": 0.0})
-                processor_result = await self._process_input(
-                    job_input,
-                    progress_callback=emit_progress,
-                )
-                emit_progress(
-                    {
-                        "stage": "processing",
-                        "message": "executor_complete",
-                        "percent": 100.0,
-                    }
+            # Progress callback that updates job store directly
+            def progress_callback(progress_data: Dict):
+                job_store.update_job(
+                    job_id=job_id,
+                    progress=progress_data,
                 )
 
-                if processor_result is not None:
-                    final_result_payload = processor_result
+            logger.info(f"Processing job {job_id} with {self.processor.name} ({len(file_uris)} files)")
 
-                # Clean up temporary files
-                shutil.rmtree(temp_dir, ignore_errors=True)
+            # Download all files from S3
+            progress_callback({"stage": "download", "message": "start"})
+            job_input, temp_dir = await self._prepare_job_input(job_id, file_uris)
+            progress_callback({"stage": "download", "message": "complete"})
 
-            if final_result_payload is None:
-                final_result_payload = DefaultResult()
+            # Process using the algorithm-specific processor (single call)
+            progress_callback({"stage": "processing", "percent": 0.0})
+            processor_result = await self._process_input(job_input, progress_callback=progress_callback)
+            progress_callback({"stage": "processing", "percent": 100.0})
 
-            job_result = self._convert_to_job_result(job_id, final_result_payload)
+            # Clean up temporary files
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+            if processor_result is None:
+                processor_result = DefaultResult()
+
+            job_result = self._convert_to_job_result(job_id, processor_result)
 
             # Update job as completed
             job_store.update_job(
@@ -152,10 +98,6 @@ class JobProcessor:
                 progress={
                     "stage": "completed",
                     "percent": 100.0,
-                    "detail": {
-                        "processed_inputs": total_inputs,
-                        "total_inputs": total_inputs,
-                    },
                 },
             )
 
@@ -200,7 +142,7 @@ class JobProcessor:
             metadata: Job metadata
 
         Returns:
-            Manifest dict
+            Manifest dict with 'files' key
         """
         manifest_uri = metadata.get('manifest_uri')
         manifest_data = metadata.get('manifest_data')
@@ -211,7 +153,6 @@ class JobProcessor:
 
         if manifest_uri:
             # Download from S3
-            # Extract key from URI (s3://bucket/key)
             if not manifest_uri.startswith('s3://'):
                 raise ValueError(f"Invalid S3 URI: {manifest_uri}")
 
@@ -228,16 +169,10 @@ class JobProcessor:
             s3_client.download_fileobj(key, buffer)
             buffer.seek(0)
 
-            # Parse manifest (JSONL or JSON)
+            # Parse manifest JSON
             content = buffer.read().decode('utf-8')
-            if manifest_uri.endswith('.jsonl'):
-                # Parse JSONL
-                inputs = [json.loads(line) for line in content.strip().split('\n')]
-                return {'inputs': inputs}
-            else:
-                # Parse JSON
-                manifest = json.loads(content)
-                return manifest
+            manifest = json.loads(content)
+            return manifest
 
         raise ValueError("No manifest provided")
 
@@ -316,13 +251,6 @@ class JobProcessor:
 
         logger.info(f"Processor emitted job-level results for job {job_input.job_id}")
         return result
-
-    def _resolve_input_id(self, entry: Dict[str, Any], index: int) -> str:
-        """Extract the input identifier from the request or manifest entry."""
-        input_id = entry.get('input_id')
-        if input_id:
-            return str(input_id)
-        return f"input-{index}"
 
 
 class WorkerPool:

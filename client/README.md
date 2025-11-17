@@ -17,22 +17,16 @@ Run the command from the `client/` directory (or from the project root with `pip
 ## Quick Start
 
 ```python
-from ifcb_client import IFCBClient, Manifest, BinManifestEntry
+from ifcb_client import IFCBClient, Manifest
 
 # Create a client
 client = IFCBClient("http://localhost:8001")
 
 # Submit a job
-manifest = Manifest(bins=[
-    BinManifestEntry(
-        bin_id="D20230101T120000_IFCB123",
-        files=[
-            "s3://bucket/data/D20230101T120000_IFCB123.adc",
-            "s3://bucket/data/D20230101T120000_IFCB123.roi",
-            "s3://bucket/data/D20230101T120000_IFCB123.hdr",
-        ],
-        bytes=5000000,
-    )
+manifest = Manifest(files=[
+    "s3://bucket/data/D20230101T120000_IFCB123.adc",
+    "s3://bucket/data/D20230101T120000_IFCB123.roi",
+    "s3://bucket/data/D20230101T120000_IFCB123.hdr",
 ])
 
 job = client.submit_job(manifest_inline=manifest)
@@ -40,8 +34,8 @@ job = client.submit_job(manifest_inline=manifest)
 # Wait for completion
 result = client.wait_for_job(job.job_id)
 
-print(f"Processed {result.result.counts.rois} ROIs")
-print(f"Features: {result.result.features.uris}")
+print(f"Job completed: {result.status}")
+print(f"Result: {result.result.payload}")
 
 client.close()
 ```
@@ -216,8 +210,7 @@ await client.wait_for_job(...)
 - `JobStatus` - Job status and results
 - `JobSubmitResponse` - Job submission response
 - `JobResult` - Processing results with URIs
-- `Manifest` - Job manifest
-- `BinManifestEntry` - Single bin in manifest
+- `Manifest` - Job manifest (list of file URIs)
 
 ### Exceptions
 

@@ -8,7 +8,6 @@ from .models import (
     JobSubmitResponse,
     JobResult,
     Manifest,
-    BinManifestEntry,
 )
 from .exceptions import (
     IFCBClientError,
@@ -34,7 +33,6 @@ __all__ = [
     "JobSubmitResponse",
     "JobResult",
     "Manifest",
-    "BinManifestEntry",
     # Exceptions
     "IFCBClientError",
     "JobNotFoundError",

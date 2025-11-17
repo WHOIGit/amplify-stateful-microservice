@@ -18,7 +18,6 @@ from .models import (
     IngestStartResponse,
     IngestCompleteResponse,
     Manifest,
-    BinManifestEntry,
 )
 from .exceptions import (
     JobNotFoundError,
@@ -204,12 +203,10 @@ class IFCBClient:
             APIError: If API returns an error
 
         Example:
-            >>> manifest = Manifest(bins=[
-            ...     BinManifestEntry(
-            ...         bin_id="test",
-            ...         files=["s3://bucket/test.adc", "s3://bucket/test.roi", "s3://bucket/test.hdr"],
-            ...         bytes=1000000
-            ...     )
+            >>> manifest = Manifest(files=[
+            ...     "s3://bucket/test.adc",
+            ...     "s3://bucket/test.roi",
+            ...     "s3://bucket/test.hdr"
             ... ])
             >>> job = client.submit_job(manifest_inline=manifest)
             >>> print(job.job_id)
