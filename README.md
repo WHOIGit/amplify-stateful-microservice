@@ -1,4 +1,4 @@
-# Amplify Stateful Microservice Toolkit
+# Amplify Stateful Microservices
 
 This repo captures everything required to run long-running, queue-backed processing APIs. It contains the generic production library (`stateful_microservice/`), a reference IFCB features processor (`examples/ifcb_features_service/`) that demonstrates how to plug in domain logic, and the accompanying Python client used by the IFCB tooling to submit ingest requests and poll for job completion.
 

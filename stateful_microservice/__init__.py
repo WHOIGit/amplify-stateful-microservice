@@ -10,7 +10,7 @@ __version__ = "1.0.0"
 
 
 def create_worker_pool(*args, **kwargs):
-    """Lazily import worker pool support so direct-only services avoid heavy deps."""
+    """Lazily import worker pool to avoid circular imports and reduce startup overhead."""
     from .worker import create_worker_pool as _create_worker_pool
 
     return _create_worker_pool(*args, **kwargs)
