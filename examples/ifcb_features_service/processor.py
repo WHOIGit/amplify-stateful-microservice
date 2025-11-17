@@ -1,19 +1,42 @@
 """IFCB features extraction processor using ifcb-features library."""
 
-from pathlib import Path
-from typing import Dict, Tuple, List
-import tempfile
-import shutil
+import io
 import logging
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Any, Dict, List
 
-import pandas as pd
 import numpy as np
+from PIL import Image
 from ifcb import DataDirectory
 from ifcb_features.all import compute_features
+from pydantic import BaseModel
 
 from stateful_microservice import BaseProcessor
+from stateful_microservice.processor import JobInput
+from stateful_microservice.output_writers import (
+    JsonlResultUploader,
+    WebDatasetUploader,
+    write_results_index,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class FeatureRecord(BaseModel):
+    """Schema for a single ROI feature response."""
+
+    roi_number: int
+    metrics: Dict[str, float]
+
+
+class FeaturesJobResult(BaseModel):
+    """Job-level payload emitted once processing completes."""
+
+    outputs: List[Dict[str, Any]]
+    metrics: Dict[str, int]
+    results_index_uri: str
 
 
 class FeaturesProcessor(BaseProcessor):
@@ -32,36 +55,46 @@ class FeaturesProcessor(BaseProcessor):
     def version(self) -> str:
         return "1.0.0"
 
-    def process_bin(
+    result_model = FeaturesJobResult
+
+    def process_input(
         self,
-        bin_id: str,
-        bin_files: Dict[str, Path]
-    ) -> Tuple[pd.DataFrame, List[np.ndarray]]:
+        job_input: JobInput,
+    ) -> FeaturesJobResult:
         """
-        Extract features and masks from an IFCB bin.
+        Extract features and masks from an IFCB input.
 
         Args:
-            bin_id: Bin identifier
-            bin_files: Dict mapping file extension to local path
+            job_input: Runtime job input containing the job ID and local file paths
 
         Returns:
-            Tuple of:
-                - DataFrame with the standard `ifcb-features` columns per ROI (30 fields)
-                - List of blob mask images (numpy arrays)
+            FeaturesJobResult describing the uploaded outputs.
 
         Raises:
             ValueError: If required files are missing or no features extracted
         """
         # Validate required files
-        self.validate_bin_files(bin_files, {'.adc', '.roi', '.hdr'})
+        input_label = self._infer_input_label(job_input.local_paths)
+        files_by_ext = {}
+        for raw_path in job_input.local_paths:
+            path = Path(raw_path)
+            if path.is_file():
+                files_by_ext[path.suffix.lower()] = path
+
+        missing = {'.adc', '.roi', '.hdr'} - set(files_by_ext.keys())
+        if missing:
+            raise ValueError(
+                f"Missing required files for {input_label}: {missing}. "
+                f"Available: {set(files_by_ext.keys())}"
+            )
 
         # Create temporary directory with proper naming convention
         temp_dir = tempfile.mkdtemp()
 
         try:
             # Copy files with expected naming: {bin_id}.{ext}
-            for ext, path in bin_files.items():
-                dest = Path(temp_dir) / f"{bin_id}{ext}"
+            for ext, path in files_by_ext.items():
+                dest = Path(temp_dir) / f"{input_label}{ext}"
                 shutil.copy(path, dest)
                 logger.debug(f"Copied {path} to {dest}")
 
@@ -70,13 +103,13 @@ class FeaturesProcessor(BaseProcessor):
             bins = list(data_dir)
 
             if not bins:
-                raise ValueError(f"No bins found in directory for {bin_id}")
+                raise ValueError(f"No bins found in directory for {input_label}")
 
             sample = bins[0]
 
             # Process each ROI image
-            features_list = []
-            masks_list = []
+            features_list: List[FeatureRecord] = []
+            masks_list: List[bytes] = []
             try:
                 total_rois = len(sample.images)
             except TypeError:
@@ -96,16 +129,16 @@ class FeaturesProcessor(BaseProcessor):
                     # where features is a list of (name, value) tuples
                     blobs_image, roi_features = compute_features(image)
 
-                    # Convert features to dict
-                    feature_dict = {'roi_number': roi_number}
-                    feature_dict.update(dict(roi_features))
-                    features_list.append(feature_dict)
+                    feature_record = FeatureRecord(
+                        roi_number=roi_number,
+                        metrics=dict(roi_features),
+                    )
+                    features_list.append(feature_record)
 
-                    # Store blob mask
-                    masks_list.append(blobs_image)
+                    masks_list.append(self._encode_mask(blobs_image))
 
                 except Exception as e:
-                    logger.warning(f"Failed to process ROI {roi_number} in bin {bin_id}: {e}")
+                    logger.warning(f"Failed to process ROI {roi_number} in input {input_label}: {e}")
                     # Continue processing other ROIs
                     continue
 
@@ -131,17 +164,11 @@ class FeaturesProcessor(BaseProcessor):
                     )
 
             if not features_list:
-                raise ValueError(f"No features extracted from bin {bin_id}")
-
-            # Convert to DataFrame
-            features_df = pd.DataFrame(features_list)
-
-            # Validate output
-            self.validate_output(features_df)
+                raise ValueError(f"No features extracted from input {input_label}")
 
             logger.info(
-                f"Extracted {len(features_df)} features and {len(masks_list)} masks "
-                f"from bin {bin_id}"
+                f"Extracted {len(features_list)} features and {len(masks_list)} masks "
+                f"from input {input_label}"
             )
 
             self.report_progress(
@@ -149,28 +176,58 @@ class FeaturesProcessor(BaseProcessor):
                 percent=100.0,
                 message="processor_complete",
                 total_rois=total_rois,
-                processed_rois=len(features_df),
+                processed_rois=len(features_list),
             )
 
-            return features_df, masks_list
+            responses_uploader = JsonlResultUploader(job_input.job_id, response_model=FeatureRecord)
+            for record in features_list:
+                responses_uploader.add_record(record)
+            responses_output = responses_uploader.finalize()
+
+            artifacts_uploader = WebDatasetUploader(job_input.job_id)
+            for idx, mask in enumerate(masks_list):
+                artifacts_uploader.add_artifact(input_label, f"{idx:05d}", mask, extension=".png")
+            artifacts_output = artifacts_uploader.finalize()
+
+            outputs: List[Dict[str, Any]] = []
+            if responses_output["uris"]:
+                responses_output["name"] = "records"
+                outputs.append(responses_output)
+            if artifacts_output:
+                outputs.append(artifacts_output)
+
+            metrics_payload = {
+                "inputs_processed": 1,
+                "records_emitted": len(features_list),
+                "artifacts_emitted": len(masks_list),
+            }
+
+            results_uri = write_results_index(job_input.job_id, outputs, metrics_payload)
+
+            return FeaturesJobResult(
+                outputs=outputs,
+                metrics=metrics_payload,
+                results_index_uri=results_uri,
+            )
 
         finally:
             # Clean up temporary directory
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def get_output_schema(self) -> Dict[str, str]:
-        """
-        Define expected output schema.
+    def _encode_mask(self, mask: np.ndarray) -> bytes:
+        """Encode a mask array as PNG bytes."""
+        data = mask
+        if data.dtype != np.uint8:
+            data = (data * 255).astype(np.uint8)
+        image = Image.fromarray(data)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
 
-        The `ifcb-features` library defines the full column set (30 fields).
-        Key columns include morphology, texture, and geometry features.
-        """
-        return {
-            'roi_number': 'int64',
-            'Area': 'float64',
-            'Biovolume': 'float64',
-            'Eccentricity': 'float64',
-            'MajorAxisLength': 'float64',
-            'MinorAxisLength': 'float64',
-            # ... plus the remaining columns from ifcb-features
-        }
+    def _infer_input_label(self, local_paths: List[str]) -> str:
+        """Best-effort guess at the input label based on filenames."""
+        for raw_path in local_paths:
+            stem = Path(raw_path).stem
+            if stem:
+                return stem
+        return "input"

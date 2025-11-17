@@ -27,25 +27,28 @@ class ErrorResponse(BaseModel):
 
 class FileUploadSpec(BaseModel):
     """Specification for a single file to upload."""
-    filename: str = Field(..., description="Name of the file (e.g., file1.adc)")
+    filename: str = Field(..., description="Original filename (e.g., input.bin)")
     size_bytes: int = Field(..., description="File size in bytes", gt=0)
 
 
-class BinUploadSpec(BaseModel):
-    """Specification for a bin containing multiple files."""
-    bin_id: str = Field(..., description="Unique bin identifier")
+class InputUploadSpec(BaseModel):
+    """Specification for a logical input made of one or more files."""
+    input_id: str = Field(
+        ...,
+        description="Unique identifier for this input payload",
+    )
     files: List[FileUploadSpec] = Field(
         ...,
-        description="List of files to upload for the bin",
+        description="List of files that make up this input payload",
         min_length=1,
     )
 
 
 class IngestStartRequest(BaseModel):
-    """Request to start ingesting a bin (3 files)."""
-    bins: List[BinUploadSpec] = Field(
+    """Request to start ingesting one or more logical inputs."""
+    inputs: List[InputUploadSpec] = Field(
         ...,
-        description="List of bins to ingest",
+        description="List of inputs to ingest",
         min_length=1,
     )
 
@@ -65,16 +68,19 @@ class FileUploadInfo(BaseModel):
     part_urls: List[PartUrl] = Field(..., description="Pre-signed URLs for all parts")
 
 
-class BinUploadInfo(BaseModel):
-    """Upload info for a single bin."""
-    bin_id: str = Field(..., description="Bin identifier")
-    files: List[FileUploadInfo] = Field(..., description="Upload info for each file in the bin")
+class InputUploadInfo(BaseModel):
+    """Upload info for a single logical input."""
+    input_id: str = Field(..., description="Input identifier")
+    files: List[FileUploadInfo] = Field(..., description="Upload info for each file in the input")
 
 
 class IngestStartResponse(BaseModel):
     """Response with upload information for all files."""
-    job_id: str = Field(..., description="Job ID for this bin")
-    bins: List[BinUploadInfo] = Field(..., description="Upload info for each bin")
+    job_id: str = Field(..., description="Job ID for this ingest request")
+    inputs: List[InputUploadInfo] = Field(
+        ...,
+        description="Upload info for each input payload",
+    )
     expires_at: datetime = Field(..., description="When the pre-signed URLs expire")
 
 
@@ -87,7 +93,10 @@ class CompletedPart(BaseModel):
 class IngestCompleteRequest(BaseModel):
     """Request to complete upload for a single file."""
     job_id: str = Field(..., description="Job ID")
-    bin_id: str = Field(..., description="Bin ID from start response")
+    input_id: str = Field(
+        ...,
+        description="Input ID from start response",
+    )
     file_id: str = Field(..., description="File ID from start response")
     upload_id: str = Field(..., description="Upload ID from start response")
     parts: List[CompletedPart] = Field(..., description="List of completed parts with ETags")
@@ -105,17 +114,22 @@ class IngestCompleteResponse(BaseModel):
 # Manifest Models
 # ============================================================================
 
-class BinManifestEntry(BaseModel):
-    """Single bin entry in a manifest."""
-    bin_id: str = Field(..., description="Bin identifier")
-    files: List[str] = Field(..., description="List of 3 S3 URIs (s3://bucket/key)", min_length=3, max_length=3)
-    bytes: int = Field(..., description="Total size in bytes")
-    sha256: Optional[str] = Field(None, description="Optional checksum")
+class InputManifestEntry(BaseModel):
+    """Single logical input in a manifest."""
+    input_id: str = Field(
+        ...,
+        description="Input identifier",
+    )
+    files: List[str] = Field(..., description="List of S3 URIs (s3://bucket/key)", min_length=1)
+    sha256: Optional[str] = Field(None, description="Optional checksum for the entire input payload")
 
 
-class Manifest(BaseModel):
-    """Collection of bins to process."""
-    bins: List[BinManifestEntry] = Field(..., description="List of bins")
+class JobManifest(BaseModel):
+    """Collection of inputs to process."""
+    inputs: List[InputManifestEntry] = Field(
+        ...,
+        description="List of inputs that compose the job",
+    )
 
 
 # ============================================================================
@@ -129,8 +143,11 @@ class JobParameters(BaseModel):
 
 class JobSubmitRequest(BaseModel):
     """Request to submit a processing job."""
-    manifest_uri: Optional[str] = Field(None, description="S3 URI to manifest file (s3://bucket/key)")
-    manifest_inline: Optional[Manifest] = Field(None, description="Inline manifest (for small jobs)")
+    manifest_uri: Optional[str] = Field(None, description="S3 URI pointing to a manifest JSON/JSONL file")
+    manifest_inline: Optional[JobManifest] = Field(
+        None,
+        description="Inline manifest (useful for testing or small jobs)",
+    )
     parameters: Optional[JobParameters] = Field(default_factory=JobParameters)
     callback_url: Optional[str] = Field(None, description="Webhook URL for completion notification")
     idempotency_key: Optional[str] = Field(None, description="Idempotency key to prevent duplicate processing")
@@ -143,38 +160,10 @@ class JobSubmitResponse(BaseModel):
     created_at: datetime = Field(..., description="Job creation timestamp")
 
 
-class FeaturesOutput(BaseModel):
-    """Information about features output."""
-    format: Literal["parquet"] = Field(default="parquet")
-    uris: List[str] = Field(..., description="List of S3 URIs for Parquet files")
-    column_schema: Dict[str, str] = Field(..., description="Column name to type mapping")
-
-
-class MasksShard(BaseModel):
-    """Information about a single masks shard."""
-    uri: str = Field(..., description="S3 URI to TAR shard")
-    index_uri: str = Field(..., description="S3 URI to JSON index for this shard")
-
-
-class MasksOutput(BaseModel):
-    """Information about masks output."""
-    format: Literal["webdataset"] = Field(default="webdataset")
-    shards: List[MasksShard] = Field(..., description="List of TAR shards")
-
-
-class JobCounts(BaseModel):
-    """Job processing counts."""
-    bins: int = Field(..., description="Number of bins processed")
-    rois: int = Field(..., description="Total number of ROIs")
-    masks: int = Field(..., description="Total number of masks")
-
-
 class JobResult(BaseModel):
-    """Results index for a completed job."""
+    """Result summary for a completed job."""
     job_id: str = Field(..., description="Job ID")
-    features: FeaturesOutput = Field(..., description="Features output information")
-    masks: MasksOutput = Field(..., description="Masks output information")
-    counts: JobCounts = Field(..., description="Processing counts")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="Processor-defined result payload")
 
 
 class JobStatus(BaseModel):

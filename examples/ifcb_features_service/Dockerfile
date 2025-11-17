@@ -10,14 +10,11 @@ RUN apt-get update && apt-get install -y \
 
 ENV PATH="/root/.local/bin:$PATH"
 
-COPY pyproject.toml ./
-COPY README.md ./
-COPY stateful_microservice ./stateful_microservice
-COPY client ./client
-COPY examples ./examples
-
-RUN uv pip install --system .
+RUN uv pip install --system "numpy>=1.26.0" "pillow>=11.0.0"
 RUN uv pip install --system git+https://github.com/WHOIGit/ifcb-features.git
+RUN uv pip install --system 'git+https://github.com/WHOIGit/ifcb-features-microservice-poc.git#egg=amplify-stateful&subdirectory=.'
+
+COPY . ./app
 
 EXPOSE 8000
 

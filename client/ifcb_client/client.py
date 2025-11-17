@@ -43,7 +43,7 @@ class IFCBClient:
         >>> client = IFCBClient("http://localhost:8001")
         >>> job = client.submit_job(manifest_uri="s3://bucket/manifest.json")
         >>> result = client.wait_for_job(job.job_id)
-        >>> print(result.result.counts)
+        >>> print(result.result.payload)
     """
 
     def __init__(
@@ -308,7 +308,7 @@ class IFCBClient:
         Example:
             >>> job = client.submit_job(manifest_uri="s3://bucket/manifest.json")
             >>> result = client.wait_for_job(job.job_id)
-            >>> print(result.result.counts.rois)
+            >>> print(result.result.payload)
         """
         start_time = time.time()
 

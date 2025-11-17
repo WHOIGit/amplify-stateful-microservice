@@ -1,303 +1,186 @@
-"""Output writers for features (Parquet) and masks (WebDataset TAR shards)."""
+"""Optional helpers for processors to upload structured results and artifacts."""
 
 import io
-import tarfile
 import json
-import tempfile
-from pathlib import Path
-from typing import List, Dict, Any, TYPE_CHECKING
+import tarfile
 import logging
+from typing import Any, Dict, List, Optional, Sequence
 
-from .storage import s3_client
+from pydantic import BaseModel
+
 from .config import settings
-from ._optional import require_pandas, require_pyarrow
+from .storage import s3_client
 
 logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    import pandas as pd
 
+class JsonlResultUploader:
+    """
+    Helper for processors to stream JSONL records to S3.
 
-class ParquetFeaturesWriter:
-    """Writer for features output in Parquet format."""
+    Example:
+        uploader = JsonlResultUploader(job_id, response_model=FeatureRecord)
+        for record in records:
+            uploader.add_record(record)
+        response_output = uploader.finalize()
+    """
 
-    def __init__(self, job_id: str):
-        """
-        Initialize Parquet writer.
-
-        Args:
-            job_id: Job ID for output path construction
-        """
+    def __init__(self, job_id: str, response_model: Optional[type[BaseModel]] = None):
         self.job_id = job_id
-        self.features_data: List[Dict[str, Any]] = []
+        self.response_model = response_model
+        self.buffer = io.BytesIO()
+        self.max_file_size = settings.responses_chunk_size_mb * 1024 * 1024
+        self.file_index = 0
+        self.total_records = 0
+        self.uris: List[str] = []
 
-    def add_bin_features(self, bin_id: str, features_df: "pd.DataFrame"):
-        """
-        Add features for a single bin.
+    def add_record(self, record: Dict[str, Any] | BaseModel):
+        """Add a single record to the JSONL stream."""
+        if isinstance(record, BaseModel):
+            data = record.model_dump()
+        else:
+            data = dict(record)
 
-        Args:
-            bin_id: Bin identifier
-            features_df: DataFrame with columns [roi_number, feature1, feature2, ...]
-        """
-        # Add bin_id column
-        pd = require_pandas()
-        features_df = features_df.copy()
-        features_df.insert(0, 'bin_id', bin_id)
+        if self.response_model:
+            data = self.response_model(**data).model_dump()
 
-        # Convert to records and append
-        self.features_data.extend(features_df.to_dict('records'))
-        logger.info(f"Added {len(features_df)} ROI features for bin {bin_id}")
+        encoded = (json.dumps(data) + "\n").encode("utf-8")
+        if self.buffer.tell() + len(encoded) > self.max_file_size:
+            self._flush()
 
-    def write_to_s3(self) -> List[str]:
-        """
-        Write accumulated features to Parquet file(s) on S3.
+        self.buffer.write(encoded)
+        self.total_records += 1
 
-        Returns:
-            List of S3 URIs for created Parquet files
-        """
-        if not self.features_data:
-            logger.warning("No features data to write")
-            return []
-
-        # Convert to DataFrame
-        pd = require_pandas()
-        df = pd.DataFrame(self.features_data)
-
-        # Define S3 path
-        s3_key = f"{settings.s3_results_prefix}/{self.job_id}/features/part-0000.parquet"
-
-        logger.info(f"Writing {len(df)} rows to {s3_key}")
-
-        # Write to in-memory buffer as Parquet
-        buffer = io.BytesIO()
-        pa, pq = require_pyarrow()
-        table = pa.Table.from_pandas(df)
-        pq.write_table(table, buffer)
-
-        # Upload to S3
-        buffer.seek(0)
-        s3_client.upload_fileobj(buffer, s3_key)
-
-        uri = s3_client.get_object_url(s3_key)
-        logger.info(f"Successfully wrote features to {uri}")
-
-        return [uri]
-
-    def get_schema(self) -> Dict[str, str]:
-        """
-        Get the schema (column names and types).
-
-        Returns:
-            Dict mapping column names to type strings
-        """
-        if not self.features_data:
-            return {}
-
-        pd = require_pandas()
-        df = pd.DataFrame(self.features_data)
-        schema = {}
-        for col, dtype in df.dtypes.items():
-            # Convert numpy dtypes to string representation
-            if dtype.name.startswith('int'):
-                schema[col] = 'int64'
-            elif dtype.name.startswith('float'):
-                schema[col] = 'float64'
-            else:
-                schema[col] = 'string'
-
-        return schema
-
-
-class WebDatasetMasksWriter:
-    """Writer for masks output in WebDataset TAR shard format."""
-
-    def __init__(self, job_id: str):
-        """
-        Initialize WebDataset TAR writer.
-
-        Args:
-            job_id: Job ID for output path construction
-        """
-        self.job_id = job_id
-        self.current_shard_index = 0
-        self.current_shard_size = 0
-        self.current_shard_items: List[Dict[str, Any]] = []
-        self.shards_info: List[Dict[str, str]] = []
-        self.target_shard_size = settings.masks_shard_size_mb * 1024 * 1024
-
-    def add_mask(self, bin_id: str, roi_number: int, mask_png_bytes: bytes):
-        """
-        Add a mask to the current shard.
-
-        Args:
-            bin_id: Bin identifier
-            roi_number: ROI number
-            mask_png_bytes: PNG-encoded mask bytes
-        """
-        mask_id = f"{bin_id}_{roi_number:05d}"
-
-        self.current_shard_items.append({
-            'bin_id': bin_id,
-            'roi_number': roi_number,
-            'mask_id': mask_id,
-            'data': mask_png_bytes,
-        })
-
-        self.current_shard_size += len(mask_png_bytes)
-
-        # Check if we should finalize this shard
-        if self.current_shard_size >= self.target_shard_size:
-            self._finalize_current_shard()
-
-    def _finalize_current_shard(self):
-        """Finalize and upload the current shard to S3."""
-        if not self.current_shard_items:
+    def _flush(self):
+        if self.buffer.tell() == 0:
             return
 
-        shard_name = f"shard-{self.current_shard_index:05d}"
-        tar_key = f"{settings.s3_results_prefix}/{self.job_id}/masks/{shard_name}.tar"
-        index_key = f"{settings.s3_results_prefix}/{self.job_id}/masks/{shard_name}.json"
+        self.buffer.seek(0)
+        key = f"{settings.s3_results_prefix}/{self.job_id}/responses_{self.file_index:05d}.jsonl"
+        s3_client.upload_fileobj(self.buffer, key)
+        self.uris.append(s3_client.get_object_url(key))
 
-        logger.info(f"Finalizing shard {shard_name} with {len(self.current_shard_items)} masks")
+        logger.info(f"Uploaded JSONL chunk {key} ({self.total_records} records so far)")
 
-        # Create TAR archive in memory
-        tar_buffer = io.BytesIO()
-        with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
-            for item in self.current_shard_items:
-                mask_id = item['mask_id']
-                data = item['data']
-
-                # Create TarInfo for this file
-                tarinfo = tarfile.TarInfo(name=f"{mask_id}.png")
-                tarinfo.size = len(data)
-
-                # Add to tar
-                tar.addfile(tarinfo, io.BytesIO(data))
-
-        # Upload TAR to S3
-        tar_buffer.seek(0)
-        s3_client.upload_fileobj(tar_buffer, tar_key)
-
-        # Create index (maps mask_id to bin_id and roi_number)
-        index_data = {
-            item['mask_id']: {
-                'bin_id': item['bin_id'],
-                'roi_number': item['roi_number'],
-                'tar_member': f"{item['mask_id']}.png",
-            }
-            for item in self.current_shard_items
-        }
-
-        # Upload index to S3
-        index_buffer = io.BytesIO(json.dumps(index_data, indent=2).encode('utf-8'))
-        s3_client.upload_fileobj(index_buffer, index_key)
-
-        # Record shard info
-        self.shards_info.append({
-            'uri': s3_client.get_object_url(tar_key),
-            'index_uri': s3_client.get_object_url(index_key),
-        })
-
-        logger.info(f"Uploaded shard {shard_name} ({self.current_shard_size} bytes)")
-
-        # Reset for next shard
-        self.current_shard_index += 1
-        self.current_shard_size = 0
-        self.current_shard_items = []
-
-    def finalize(self) -> List[Dict[str, str]]:
-        """
-        Finalize any remaining masks and return shard information.
-
-        Returns:
-            List of shard info dicts with 'uri' and 'index_uri'
-        """
-        # Finalize any remaining items
-        self._finalize_current_shard()
-
-        logger.info(f"Finalized {len(self.shards_info)} shards for job {self.job_id}")
-        return self.shards_info
-
-
-class ResultsWriter:
-    """Coordinator for writing both features and masks."""
-
-    def __init__(self, job_id: str):
-        """
-        Initialize results writer.
-
-        Args:
-            job_id: Job ID
-        """
-        self.job_id = job_id
-        self.features_writer = ParquetFeaturesWriter(job_id)
-        self.masks_writer = WebDatasetMasksWriter(job_id)
-        self.total_bins = 0
-        self.total_rois = 0
-        self.total_masks = 0
-
-    def add_bin_results(self, bin_id: str, features_df: "pd.DataFrame", masks: List[bytes]):
-        """
-        Add results for a single bin.
-
-        Args:
-            bin_id: Bin identifier
-            features_df: Features DataFrame
-            masks: List of PNG-encoded mask bytes (one per ROI)
-        """
-        # Add features
-        self.features_writer.add_bin_features(bin_id, features_df)
-
-        # Add masks
-        total_rois_in_bin = len(features_df)
-        for i, mask_bytes in enumerate(masks):
-            roi_number = int(features_df.iloc[i]['roi_number'])
-            self.masks_writer.add_mask(bin_id, roi_number, mask_bytes)
-
-        self.total_bins += 1
-        self.total_rois += len(features_df)
-        self.total_masks += len(masks)
-
-        logger.info(f"Added results for bin {bin_id}: {len(features_df)} ROIs, {len(masks)} masks")
+        self.buffer = io.BytesIO()
+        self.file_index += 1
 
     def finalize(self) -> Dict[str, Any]:
-        """
-        Finalize all outputs and create results index.
-
-        Returns:
-            Results index dict
-        """
-        # Write features to S3
-        feature_uris = self.features_writer.write_to_s3()
-        column_schema = self.features_writer.get_schema()
-
-        # Finalize masks
-        mask_shards = self.masks_writer.finalize()
-
-        # Create results index
-        results = {
-            'job_id': self.job_id,
-            'features': {
-                'format': 'parquet',
-                'uris': feature_uris,
-                'column_schema': column_schema,
+        """Flush remaining data and return output metadata."""
+        self._flush()
+        artifact = {
+            "name": "responses",
+            "type": "tabular",
+            "format": "jsonl",
+            "uris": self.uris,
+            "shards": [],
+            "metadata": {
+                "records_emitted": self.total_records,
+                "file_count": len(self.uris),
             },
-            'masks': {
-                'format': 'webdataset',
-                'shards': mask_shards,
-            },
-            'counts': {
-                'bins': self.total_bins,
-                'rois': self.total_rois,
-                'masks': self.total_masks,
-            }
+        }
+        if self.response_model:
+            artifact["metadata"]["response_model"] = self.response_model.__name__
+        return artifact
+
+
+class WebDatasetUploader:
+    """
+    Helper for processors to build and upload WebDataset-style artifact shards.
+
+    Example:
+        uploader = WebDatasetUploader(job_id)
+        uploader.add_artifact(input_id, record_id, png_bytes)
+        shards_output = uploader.finalize()
+    """
+
+    def __init__(self, job_id: str):
+        self.job_id = job_id
+        self.max_shard_size = settings.artifact_shard_size_mb * 1024 * 1024
+        self.current_items: List[tuple[str, bytes]] = []
+        self.current_size = 0
+        self.shard_index = 0
+        self.shards: List[Dict[str, Any]] = []
+
+    def add_artifact(self, input_id: str, record_id: str | int, data: bytes, extension: str = ".bin"):
+        """Add an artifact blob to the current shard."""
+        if self.current_size + len(data) > self.max_shard_size:
+            self._flush()
+
+        name = f"{input_id}/{record_id}{extension}"
+        self.current_items.append((name, data))
+        self.current_size += len(data)
+
+    def _flush(self):
+        if not self.current_items:
+            return
+
+        shard_name = f"artifacts_{self.shard_index:05d}"
+        tar_key = f"{settings.s3_results_prefix}/{self.job_id}/{shard_name}.tar"
+        idx_key = f"{settings.s3_results_prefix}/{self.job_id}/{shard_name}.json"
+
+        tar_buffer = io.BytesIO()
+        with tarfile.open(fileobj=tar_buffer, mode="w") as tar:
+            for name, data in self.current_items:
+                info = tarfile.TarInfo(name=name)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+
+        tar_buffer.seek(0)
+        s3_client.upload_fileobj(tar_buffer, tar_key)
+        shard_uri = s3_client.get_object_url(tar_key)
+
+        index_payload = {
+            "items": [
+                {"name": name, "size_bytes": len(data)}
+                for name, data in self.current_items
+            ]
+        }
+        idx_buffer = io.BytesIO(json.dumps(index_payload, indent=2).encode("utf-8"))
+        s3_client.upload_fileobj(idx_buffer, idx_key)
+        index_uri = s3_client.get_object_url(idx_key)
+
+        self.shards.append({
+            "name": shard_name,
+            "uri": shard_uri,
+            "index_uri": index_uri,
+            "metadata": {"items": len(self.current_items), "bytes": self.current_size},
+        })
+
+        logger.info(f"Uploaded artifact shard {shard_name} with {len(self.current_items)} items")
+
+        self.current_items = []
+        self.current_size = 0
+        self.shard_index += 1
+
+    def finalize(self) -> Dict[str, Any] | None:
+        """Flush remaining artifacts and return shard metadata."""
+        self._flush()
+        if not self.shards:
+            return None
+
+        return {
+            "name": "artifacts",
+            "type": "binary",
+            "format": "webdataset",
+            "uris": [],
+            "shards": self.shards,
+            "metadata": {},
         }
 
-        # Upload results index to S3
-        results_key = f"{settings.s3_results_prefix}/{self.job_id}/results.json"
-        results_buffer = io.BytesIO(json.dumps(results, indent=2).encode('utf-8'))
-        s3_client.upload_fileobj(results_buffer, results_key)
 
-        logger.info(f"Uploaded results index to {results_key}")
+def write_results_index(job_id: str, outputs: Sequence[Dict[str, Any]], metrics: Dict[str, Any]) -> str:
+    """Write a consolidated results index JSON to S3 and return its URI."""
+    payload = {
+        "job_id": job_id,
+        "outputs": list(outputs),
+        "metrics": metrics,
+    }
 
-        return results
+    key = f"{settings.s3_results_prefix}/{job_id}/results.json"
+    buffer = io.BytesIO(json.dumps(payload, indent=2).encode("utf-8"))
+    s3_client.upload_fileobj(buffer, key)
+
+    uri = s3_client.get_object_url(key)
+    logger.info(f"Wrote results index for job {job_id} to {uri}")
+    return uri

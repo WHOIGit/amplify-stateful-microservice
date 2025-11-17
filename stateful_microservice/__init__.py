@@ -1,9 +1,10 @@
 """Stateful Microservice Toolkit - reusable infrastructure for long-running batch jobs."""
 
-from .processor import BaseProcessor
+from .processor import BaseProcessor, JobInput, DefaultResult
 from .api import create_app, ServiceConfig
 from .config import settings
 from .apache_conf import ApacheConfigParams, generate_apache_vhost_config
+from .output_writers import JsonlResultUploader, WebDatasetUploader, write_results_index
 
 __version__ = "1.0.0"
 
@@ -23,4 +24,9 @@ __all__ = [
     "settings",
     "ApacheConfigParams",
     "generate_apache_vhost_config",
+    "JobInput",
+    "DefaultResult",
+    "JsonlResultUploader",
+    "WebDatasetUploader",
+    "write_results_index",
 ]

@@ -34,7 +34,7 @@ class AsyncIFCBClient:
         >>> async with AsyncIFCBClient("http://localhost:8001") as client:
         ...     job = await client.submit_job(manifest_uri="s3://bucket/manifest.json")
         ...     result = await client.wait_for_job(job.job_id)
-        ...     print(result.result.counts)
+        ...     print(result.result.payload)
     """
 
     def __init__(

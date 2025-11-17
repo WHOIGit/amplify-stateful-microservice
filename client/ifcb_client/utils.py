@@ -1,7 +1,5 @@
 """Utility functions for IFCB client."""
 
-from __future__ import annotations
-
 import time
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, Tuple, TypeVar

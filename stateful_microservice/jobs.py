@@ -171,134 +171,134 @@ class JobStore:
     # Ingest Metadata Helpers
     # ==========================================================================
 
-    def init_ingest_job(self, job_id: str, bin_ids: List[str]):
+    def init_ingest_job(self, job_id: str, input_ids: List[str]):
         """Initialize ingest metadata for a job."""
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            metadata['bin_order'] = bin_ids
-            metadata['bins'] = {
-                bin_id: {
+            metadata['input_order'] = input_ids
+            metadata['inputs'] = {
+                input_id: {
                     'uploads': {},
                     'file_order': [],
                     'manifest_entry': None,
                 }
-                for bin_id in bin_ids
+                for input_id in input_ids
             }
-            metadata['file_to_bin'] = {}
+            metadata['file_to_input'] = {}
             self._upload_metadata[job_id] = metadata
 
-    def store_upload_info(self, job_id: str, bin_id: str, file_id: str, upload_info: Dict):
+    def store_upload_info(self, job_id: str, input_id: str, file_id: str, upload_info: Dict):
         """
         Store temporary upload information.
 
         Args:
             job_id: Job ID
-            bin_id: Bin ID
+            input_id: Input ID
             file_id: File ID
             upload_info: Upload metadata (upload_id, s3_key, etc.)
         """
         with self._lock:
             metadata = self._upload_metadata.setdefault(job_id, {})
-            bins = metadata.setdefault('bins', {})
-            bin_meta = bins.setdefault(bin_id, {
+            inputs = metadata.setdefault('inputs', {})
+            input_meta = inputs.setdefault(input_id, {
                 'uploads': {},
                 'file_order': [],
                 'manifest_entry': None,
             })
 
-            bin_meta['uploads'][file_id] = upload_info
-            if file_id not in bin_meta['file_order']:
-                bin_meta['file_order'].append(file_id)
+            input_meta['uploads'][file_id] = upload_info
+            if file_id not in input_meta['file_order']:
+                input_meta['file_order'].append(file_id)
 
-            metadata.setdefault('file_to_bin', {})[file_id] = bin_id
+            metadata.setdefault('file_to_input', {})[file_id] = input_id
 
-    def get_upload_info(self, job_id: str, bin_id: str, file_id: str) -> Optional[Dict]:
-        """Get stored upload information for a specific bin/file."""
+    def get_upload_info(self, job_id: str, input_id: str, file_id: str) -> Optional[Dict]:
+        """Get stored upload information for a specific input/file."""
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            bins = metadata.get('bins', {})
-            bin_meta = bins.get(bin_id, {})
-            uploads = bin_meta.get('uploads', {})
+            inputs = metadata.get('inputs', {})
+            input_meta = inputs.get(input_id, {})
+            uploads = input_meta.get('uploads', {}) if input_meta else {}
             return uploads.get(file_id)
 
-    def mark_upload_completed(self, job_id: str, bin_id: str, file_id: str, etag: str):
+    def mark_upload_completed(self, job_id: str, input_id: str, file_id: str, etag: str):
         """Mark an upload as complete and store its final ETag."""
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            bins = metadata.get('bins', {})
-            bin_meta = bins.get(bin_id)
-            if not bin_meta or file_id not in bin_meta['uploads']:
-                raise ValueError(f"Upload info not found for job {job_id}, bin {bin_id}, file {file_id}")
+            inputs = metadata.get('inputs', {})
+            input_meta = inputs.get(input_id)
+            if not input_meta or file_id not in input_meta.get('uploads', {}):
+                raise ValueError(f"Upload info not found for job {job_id}, input {input_id}, file {file_id}")
 
-            upload_info = bin_meta['uploads'][file_id]
+            upload_info = input_meta['uploads'][file_id]
             upload_info['completed'] = True
             upload_info['etag'] = etag
 
-    def bin_is_complete(self, job_id: str, bin_id: str) -> bool:
-        """Return True if all uploads for the bin are complete."""
+    def input_is_complete(self, job_id: str, input_id: str) -> bool:
+        """Return True if all uploads for the input payload are complete."""
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            bins = metadata.get('bins', {})
-            bin_meta = bins.get(bin_id)
-            if not bin_meta:
+            inputs = metadata.get('inputs', {})
+            input_meta = inputs.get(input_id)
+            if not input_meta:
                 return False
-            uploads = bin_meta.get('uploads', {})
+            uploads = input_meta.get('uploads', {})
             return bool(uploads) and all(upload.get('completed') for upload in uploads.values())
 
-    def bin_manifest_exists(self, job_id: str, bin_id: str) -> bool:
+    def input_manifest_exists(self, job_id: str, input_id: str) -> bool:
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            bins = metadata.get('bins', {})
-            bin_meta = bins.get(bin_id, {})
-            return bin_meta.get('manifest_entry') is not None
+            inputs = metadata.get('inputs', {})
+            input_meta = inputs.get(input_id, {})
+            return input_meta.get('manifest_entry') is not None
 
-    def set_bin_manifest(self, job_id: str, bin_id: str, manifest_entry: Dict):
+    def set_input_manifest(self, job_id: str, input_id: str, manifest_entry: Dict):
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            bins = metadata.get('bins', {})
-            if bin_id not in bins:
-                raise ValueError(f"Bin {bin_id} not found for job {job_id}")
-            bins[bin_id]['manifest_entry'] = manifest_entry
+            inputs = metadata.get('inputs', {})
+            if input_id not in inputs:
+                raise ValueError(f"Input {input_id} not found for job {job_id}")
+            inputs[input_id]['manifest_entry'] = manifest_entry
 
-    def all_bins_have_manifest(self, job_id: str) -> bool:
+    def all_inputs_have_manifest(self, job_id: str) -> bool:
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            bins = metadata.get('bins', {})
-            if not bins:
+            inputs = metadata.get('inputs', {})
+            if not inputs:
                 return False
-            return all(bin_meta.get('manifest_entry') is not None for bin_meta in bins.values())
+            return all(input_meta.get('manifest_entry') is not None for input_meta in inputs.values())
 
-    def get_bin_order(self, job_id: str) -> List[str]:
+    def get_input_order(self, job_id: str) -> List[str]:
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            return metadata.get('bin_order', [])
+            return metadata.get('input_order', [])
 
     def get_manifest_entries(self, job_id: str) -> List[Dict]:
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            bins = metadata.get('bins', {})
-            order = metadata.get('bin_order', list(bins.keys()))
+            inputs = metadata.get('inputs', {})
+            order = metadata.get('input_order', list(inputs.keys()))
             entries = []
-            for bin_id in order:
-                bin_meta = bins.get(bin_id)
-                if not bin_meta or not bin_meta.get('manifest_entry'):
+            for input_id in order:
+                input_meta = inputs.get(input_id)
+                if not input_meta or not input_meta.get('manifest_entry'):
                     continue
-                entries.append(bin_meta['manifest_entry'])
+                entries.append(input_meta['manifest_entry'])
             return entries
 
-    def get_bin_uploads(self, job_id: str, bin_id: str) -> Dict[str, Dict]:
+    def get_input_uploads(self, job_id: str, input_id: str) -> Dict[str, Dict]:
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            bins = metadata.get('bins', {})
-            bin_meta = bins.get(bin_id, {})
-            return bin_meta.get('uploads', {}).copy()
+            inputs = metadata.get('inputs', {})
+            input_meta = inputs.get(input_id, {})
+            return input_meta.get('uploads', {}).copy()
 
-    def get_bin_file_order(self, job_id: str, bin_id: str) -> List[str]:
+    def get_input_file_order(self, job_id: str, input_id: str) -> List[str]:
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            bins = metadata.get('bins', {})
-            bin_meta = bins.get(bin_id, {})
-            return list(bin_meta.get('file_order', []))
+            inputs = metadata.get('inputs', {})
+            input_meta = inputs.get(input_id, {})
+            return list(input_meta.get('file_order', []))
 
     def set_manifest_data(self, job_id: str, manifest_data: Dict):
         with self._lock:

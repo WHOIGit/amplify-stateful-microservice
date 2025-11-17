@@ -1,33 +1,28 @@
-"""Background worker for processing IFCB jobs using pluggable processors."""
-
-from __future__ import annotations
+"""Background worker for processing queued jobs using pluggable processors."""
 
 import asyncio
 import io
 import json
+import shutil
 import tempfile
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional, Callable, Any, TYPE_CHECKING
+from typing import Dict, List, Optional, Callable, Any, Tuple, Type
 import logging
 
-from ._optional import require_pandas, require_pillow_image
+from pydantic import BaseModel
 
-from .processor import BaseProcessor
+from .processor import BaseProcessor, JobInput, DefaultResult
 from .jobs import job_store
 from .storage import s3_client
-from .output_writers import ResultsWriter
-from .models import JobResult, FeaturesOutput, MasksOutput, MasksShard, JobCounts
+from .models import JobResult
 from .config import settings
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
 class JobProcessor:
-    """Processes IFCB jobs using a pluggable processor."""
+    """Processes queued jobs using a pluggable processor."""
 
     def __init__(self, processor: BaseProcessor):
         """
@@ -49,9 +44,6 @@ class JobProcessor:
         try:
             logger.info(f"Starting processing for job {job_id}")
 
-            # Ensure required optional dependencies are present
-            require_pandas()
-
             # Update job status
             job_store.update_job(
                 job_id=job_id,
@@ -66,29 +58,29 @@ class JobProcessor:
 
             # Get manifest
             manifest = await self._load_manifest(metadata)
+            manifest_inputs = manifest.get('inputs') or []
+            total_inputs = len(manifest_inputs)
 
-            total_bins = len(manifest.get('bins', []))
-
-            def make_progress_emitter(current_bin: int, bin_id: str):
+            def make_progress_emitter(current_index: int, input_id: str):
                 def emit(partial: Dict):
                     stage = partial.get("stage", "processing")
-                    bin_percent = partial.get("percent")
+                    segment_percent = partial.get("percent")
 
                     job_percent = None
-                    if total_bins:
-                        if bin_percent is not None:
-                            job_percent = ((current_bin - 1) + (bin_percent / 100.0)) / total_bins * 100.0
+                    if total_inputs:
+                        if segment_percent is not None:
+                            job_percent = ((current_index - 1) + (segment_percent / 100.0)) / total_inputs * 100.0
                         else:
-                            job_percent = ((current_bin - 1) / total_bins) * 100.0
+                            job_percent = ((current_index - 1) / total_inputs) * 100.0
 
                     detail = {
-                        "bin_id": bin_id,
-                        "bin_index": current_bin,
-                        "bin_total": total_bins,
+                        "input_id": input_id,
+                        "input_index": current_index,
+                        "input_total": total_inputs,
                     }
 
-                    if bin_percent is not None:
-                        detail["bin_percent"] = bin_percent
+                    if segment_percent is not None:
+                        detail["input_percent"] = segment_percent
 
                     for key, value in partial.items():
                         if key not in {"stage", "percent"}:
@@ -106,28 +98,30 @@ class JobProcessor:
                     )
                 return emit
 
-            # Initialize results writer
-            results_writer = ResultsWriter(job_id)
+            # Process each input payload in the manifest
+            final_result_payload: Optional[Any] = None
+            for index, input_entry in enumerate(manifest_inputs, start=1):
+                input_id = self._resolve_input_id(input_entry, index)
+                file_uris = input_entry.get('files', [])
+                if not file_uris:
+                    raise ValueError(f"No file URIs provided for input {input_id}")
 
-            # Process each bin in the manifest
-            for index, bin_entry in enumerate(manifest['bins'], start=1):
-                bin_id = bin_entry['bin_id']
-                file_uris = bin_entry['files']
+                logger.info(f"Processing input {input_id} with {self.processor.name}")
 
-                logger.info(f"Processing bin {bin_id} with {self.processor.name}")
-
-                emit_progress = make_progress_emitter(index, bin_id)
+                emit_progress = make_progress_emitter(index, input_id)
                 emit_progress({"stage": "download", "message": "start"})
 
-                # Download bin files from S3
-                bin_files = await self._download_bin_files(bin_id, file_uris)
+                # Download input files from S3
+                job_input, temp_dir = await self._prepare_job_input(
+                    job_id,
+                    file_uris,
+                )
                 emit_progress({"stage": "download", "message": "complete"})
 
                 # Process using the algorithm-specific processor
                 emit_progress({"stage": "processing", "message": "executor_start", "percent": 0.0})
-                features_df, artifacts = await self._process_bin(
-                    bin_id,
-                    bin_files,
+                processor_result = await self._process_input(
+                    job_input,
                     progress_callback=emit_progress,
                 )
                 emit_progress(
@@ -135,30 +129,19 @@ class JobProcessor:
                         "stage": "processing",
                         "message": "executor_complete",
                         "percent": 100.0,
-                        "rois_in_bin": len(features_df),
                     }
                 )
 
-                # Add to results writer (no additional progress; handled via emit_progress)
-                results_writer.add_bin_results(bin_id, features_df, artifacts)
+                if processor_result is not None:
+                    final_result_payload = processor_result
 
                 # Clean up temporary files
-                for path in bin_files.values():
-                    Path(path).unlink(missing_ok=True)
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
-            # Finalize outputs
-            results = results_writer.finalize()
+            if final_result_payload is None:
+                final_result_payload = DefaultResult()
 
-            # Create JobResult model
-            job_result = JobResult(
-                job_id=job_id,
-                features=FeaturesOutput(**results['features']),
-                masks=MasksOutput(
-                    format="webdataset",
-                    shards=[MasksShard(**shard) for shard in results['masks']['shards']],
-                ),
-                counts=JobCounts(**results['counts']),
-            )
+            job_result = self._convert_to_job_result(job_id, final_result_payload)
 
             # Update job as completed
             job_store.update_job(
@@ -170,9 +153,8 @@ class JobProcessor:
                     "stage": "completed",
                     "percent": 100.0,
                     "detail": {
-                        "processed_bins": total_bins,
-                        "total_bins": total_bins,
-                        "processed_rois": results['counts']['rois'],
+                        "processed_inputs": total_inputs,
+                        "total_inputs": total_inputs,
                     },
                 },
             )
@@ -192,6 +174,28 @@ class JobProcessor:
                 completed_at=datetime.utcnow(),
                 error=str(e),
             )
+
+    def _convert_to_job_result(self, job_id: str, payload: Optional[BaseModel]) -> JobResult:
+        """
+        Normalize processor output into a JobResult.
+
+        Processors can return:
+            - An instance of `processor.result_model`
+            - None (falls back to `DefaultResult`)
+        """
+        result_model: Type[BaseModel] = getattr(self.processor, "result_model", DefaultResult)
+
+        if payload is None:
+            model_instance = result_model()
+        else:
+            if not isinstance(payload, result_model):
+                raise TypeError(f"Processor returned {type(payload)}, expected {result_model}.")
+            model_instance = payload
+
+        return JobResult(
+            job_id=job_id,
+            payload=model_instance.model_dump(),
+        )
 
     async def _load_manifest(self, metadata: Dict) -> Dict:
         """
@@ -233,75 +237,65 @@ class JobProcessor:
             content = buffer.read().decode('utf-8')
             if manifest_uri.endswith('.jsonl'):
                 # Parse JSONL
-                bins = [json.loads(line) for line in content.strip().split('\n')]
-                return {'bins': bins}
+                inputs = [json.loads(line) for line in content.strip().split('\n')]
+                return {'inputs': inputs}
             else:
                 # Parse JSON
-                return json.loads(content)
+                manifest = json.loads(content)
+                return manifest
 
         raise ValueError("No manifest provided")
 
-    async def _download_bin_files(self, bin_id: str, file_uris: List[str]) -> Dict[str, str]:
-        """
-        Download bin files from S3 to temporary location.
-
-        Args:
-            bin_id: Bin identifier
-            file_uris: List of S3 URIs
-
-        Returns:
-            Dict mapping extension to local file path
-        """
-        bin_files = {}
+    async def _prepare_job_input(
+        self,
+        job_id: str,
+        file_uris: List[str],
+    ) -> Tuple[JobInput, Path]:
+        """Download input files and provide their local paths for processor use."""
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"{job_id}_"))
+        local_paths: List[str] = []
 
         for uri in file_uris:
-            # Extract key from S3 URI
             if not uri.startswith('s3://'):
                 raise ValueError(f"Invalid S3 URI: {uri}")
 
-            key = uri[5:].split('/', 1)[1]
+            parts = uri[5:].split('/', 1)
+            if len(parts) != 2:
+                raise ValueError(f"Invalid S3 URI format: {uri}")
+            bucket, key = parts
+            if bucket != s3_client.bucket:
+                raise ValueError(
+                    f"Input bucket {bucket} does not match configured bucket {s3_client.bucket}"
+                )
 
-            # Determine file extension
-            extension = Path(key).suffix  # e.g., .adc, .roi, .hdr
-
-            # Create temporary file
-            temp_file = tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=extension,
-                prefix=f"{bin_id}_",
-            )
-            temp_file.close()
-
-            # Download from S3
-            with open(temp_file.name, 'wb') as f:
+            dest_path = temp_dir / Path(key).name
+            with open(dest_path, 'wb') as f:
                 s3_client.download_fileobj(key, f)
 
-            bin_files[extension] = temp_file.name
-            logger.debug(f"Downloaded {uri} to {temp_file.name}")
+            local_paths.append(str(dest_path))
+            logger.debug(f"Downloaded {uri} to {dest_path}")
 
-        return bin_files
+        job_input = JobInput(
+            job_id=job_id,
+            local_paths=local_paths,
+        )
+        return job_input, temp_dir
 
-    async def _process_bin(
+    async def _process_input(
         self,
-        bin_id: str,
-        bin_files: Dict[str, str],
+        job_input: JobInput,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
-    ) -> tuple["pd.DataFrame", List]:
+    ) -> Optional[BaseModel]:
         """
-        Process a bin using the algorithm-specific processor.
+        Process an input payload using the algorithm-specific processor.
 
         Args:
-            bin_id: Bin identifier
-            bin_files: Dict mapping extension to file path
+            job_input: Runtime input context containing metadata and file references
             progress_callback: Optional callback for progress updates
 
         Returns:
-            Tuple of (features_df, artifacts_list)
+            Optional instance of the processor’s `result_model`.
         """
-        # Convert paths to Path objects
-        bin_paths = {ext: Path(path) for ext, path in bin_files.items()}
-
-        # Run processor (CPU-bound, so run in executor)
         loop = asyncio.get_event_loop()
         if progress_callback:
             self.processor.set_progress_callback(progress_callback)
@@ -309,48 +303,31 @@ class JobProcessor:
             self.processor.set_progress_callback(None)
 
         try:
-            features_df, artifacts = await loop.run_in_executor(
+            result = await loop.run_in_executor(
                 None,
-                self.processor.process_bin,
-                bin_id,
-                bin_paths,
+                self.processor.process_input,
+                job_input,
             )
         finally:
             self.processor.set_progress_callback(None)
 
-        # Convert artifacts to bytes if needed
-        artifacts_bytes = []
-        image_module = None
-        for artifact in artifacts:
-            if isinstance(artifact, bytes):
-                artifacts_bytes.append(artifact)
-            else:
-                # Assume it's a numpy array or PIL image
-                import numpy as np
-                if isinstance(artifact, np.ndarray):
-                    # Convert to uint8 if needed
-                    if artifact.dtype != np.uint8:
-                        artifact = (artifact * 255).astype(np.uint8)
-                    if image_module is None:
-                        image_module = require_pillow_image()
-                    img = image_module.fromarray(artifact)
-                elif hasattr(artifact, 'save'):
-                    # PIL Image
-                    img = artifact
-                else:
-                    raise TypeError(f"Unsupported artifact type: {type(artifact)}")
+        if result is None:
+            return None
 
-                # Convert to PNG bytes
-                buffer = io.BytesIO()
-                img.save(buffer, format='PNG')
-                artifacts_bytes.append(buffer.getvalue())
+        if not isinstance(result, BaseModel):
+            raise TypeError(
+                f"Processors must return instances of their result_model (or None). Got {type(result)}."
+            )
 
-        logger.info(
-            f"Processed bin {bin_id}: {len(features_df)} rows, "
-            f"{len(artifacts_bytes)} artifacts"
-        )
+        logger.info(f"Processor emitted job-level results for job {job_input.job_id}")
+        return result
 
-        return features_df, artifacts_bytes
+    def _resolve_input_id(self, entry: Dict[str, Any], index: int) -> str:
+        """Extract the input identifier from the request or manifest entry."""
+        input_id = entry.get('input_id')
+        if input_id:
+            return str(input_id)
+        return f"input-{index}"
 
     async def _send_webhook(self, callback_url: str, job_result: JobResult):
         """

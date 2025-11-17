@@ -1,6 +1,6 @@
 """Pydantic models for IFCB API responses."""
 
-from typing import List, Dict, Optional, Literal
+from typing import List, Dict, Optional, Literal, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -47,38 +47,10 @@ class IngestCompleteResponse(BaseModel):
     status: str
 
 
-class FeaturesOutput(BaseModel):
-    """Features output information."""
-    format: Literal["parquet"]
-    uris: List[str]
-    column_schema: Dict[str, str]
-
-
-class MasksShard(BaseModel):
-    """Single masks shard."""
-    uri: str
-    index_uri: str
-
-
-class MasksOutput(BaseModel):
-    """Masks output information."""
-    format: Literal["webdataset"]
-    shards: List[MasksShard]
-
-
-class JobCounts(BaseModel):
-    """Job processing counts."""
-    bins: int
-    rois: int
-    masks: int
-
-
 class JobResult(BaseModel):
     """Job results."""
     job_id: str
-    features: FeaturesOutput
-    masks: MasksOutput
-    counts: JobCounts
+    payload: Dict[str, Any] = Field(default_factory=dict)
 
 
 class JobStatus(BaseModel):

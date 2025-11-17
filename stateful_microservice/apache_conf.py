@@ -1,7 +1,5 @@
 """Utilities for generating Apache reverse-proxy configs for Amplify services."""
 
-from __future__ import annotations
-
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
