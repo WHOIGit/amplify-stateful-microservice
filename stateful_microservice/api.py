@@ -138,12 +138,12 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
         responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     )
     async def ingest_start(request: IngestStartRequest):
-        """Start ingestion for one or more inputs (initiate multipart uploads)."""
+        """Start ingestion for files (initiate multipart uploads)."""
         try:
             response = ingest_service.start_ingest(request)
             logger.info(
                 f"Started ingest for job {response.job_id} "
-                f"with {len(response.inputs)} input(s)"
+                f"with {len(response.files)} file(s)"
             )
             return response
         except Exception as e:
@@ -160,8 +160,7 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
         try:
             response = ingest_service.complete_ingest(request)
             logger.info(
-                f"Completed upload for file {request.file_id} "
-                f"in input {request.input_id}, job {request.job_id}"
+                f"Completed upload for file {request.file_id}, job {request.job_id}"
             )
             return response
         except ValueError as e:

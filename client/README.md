@@ -187,8 +187,8 @@ for category, files in downloads.items():
 - `get_job(job_id)` - Get job status
 - `list_jobs(limit=50)` - List recent jobs
 - `wait_for_job(job_id, poll_interval=5, timeout=3600)` - Poll until complete
-- `start_ingest(bins)` - Start multipart upload for one or more bins
-- `complete_ingest(job_id, bin_id, file_id, upload_id, parts)` - Complete upload for a file within a bin
+- `start_ingest(files)` - Start multipart upload for files
+- `complete_ingest(job_id, file_id, upload_id, parts)` - Complete upload for a file
 - `upload_bin(bin_id, file_paths)` - Upload and process bin files
 - `upload_bins(bins)` - Upload a mapping of bin IDs to local files in one job
 - `upload_bins_from_directory(root, recursive=True, skip_incomplete=False)` - Discover and upload bins under a directory

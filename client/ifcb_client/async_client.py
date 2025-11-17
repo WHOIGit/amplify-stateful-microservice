@@ -195,13 +195,13 @@ class AsyncIFCBClient:
 
     async def start_ingest(
         self,
-        bins: List[Dict[str, Any]],
+        files: List[Dict[str, Any]],
     ) -> IngestStartResponse:
-        """Start multipart upload for one or more bins."""
-        if not bins:
-            raise ValueError("Must provide at least one bin to start ingest")
+        """Start multipart upload for files."""
+        if not files:
+            raise ValueError("Must provide at least one file to start ingest")
 
-        payload = {"bins": bins}
+        payload = {"files": files}
 
         response = await self._request("POST", "/ingest/start", json=payload)
         return IngestStartResponse(**response.json())
@@ -209,7 +209,6 @@ class AsyncIFCBClient:
     async def complete_ingest(
         self,
         job_id: str,
-        bin_id: str,
         file_id: str,
         upload_id: str,
         parts: List[Dict[str, Any]],
@@ -217,7 +216,6 @@ class AsyncIFCBClient:
         """Complete multipart upload for a file."""
         payload = {
             "job_id": job_id,
-            "bin_id": bin_id,
             "file_id": file_id,
             "upload_id": upload_id,
             "parts": parts,
@@ -240,86 +238,69 @@ class AsyncIFCBClient:
         if not bins:
             raise ValueError("No bins provided")
 
-        payload_bins = []
-        local_file_map: Dict[str, Dict[str, Path]] = {}
+        # Flatten all files into a single list
+        file_entries = []
+        local_file_map: Dict[str, Path] = {}  # filename -> local path
 
         for bin_id, file_paths in bins.items():
             validate_bin_files(file_paths)
 
-            file_entries = []
-            name_map: Dict[str, Path] = {}
-
             for ext, path in file_paths.items():
+                if path.name in local_file_map:
+                    raise UploadError(f"Duplicate filename {path.name} found")
                 file_entries.append({
                     "filename": path.name,
                     "size_bytes": path.stat().st_size,
                 })
-                if path.name in name_map:
-                    raise UploadError(
-                        f"Duplicate filename {path.name} found for bin {bin_id}"
-                    )
-                name_map[path.name] = path
+                local_file_map[path.name] = path
 
-            payload_bins.append({"bin_id": bin_id, "files": file_entries})
-            local_file_map[bin_id] = name_map
+        ingest_response = await self.start_ingest(file_entries)
 
-        ingest_response = await self.start_ingest(payload_bins)
-
-        if not ingest_response.bins:
-            raise UploadError("Ingest response did not include any bins")
-
-        response_bins = {bin_info.bin_id: bin_info for bin_info in ingest_response.bins}
+        if not ingest_response.files:
+            raise UploadError("Ingest response did not include any files")
 
         async with httpx.AsyncClient() as upload_client:
-            for bin_id, name_map in local_file_map.items():
-                bin_upload = response_bins.get(bin_id)
-                if not bin_upload:
-                    raise UploadError(f"Ingest response missing bin {bin_id}")
+            for file_info in ingest_response.files:
+                local_path = local_file_map.get(file_info.filename)
+                if not local_path:
+                    raise UploadError(f"Local file for {file_info.filename} not found")
 
-                for file_info in bin_upload.files:
-                    local_path = name_map.get(file_info.filename)
-                    if not local_path:
-                        raise UploadError(
-                            f"Local file for {file_info.filename} (bin {bin_id}) not found"
-                        )
+                part_size, _ = calculate_part_size(local_path.stat().st_size)
+                completed_parts = []
 
-                    part_size, _ = calculate_part_size(local_path.stat().st_size)
-                    completed_parts = []
+                with open(local_path, 'rb') as file_handle:
+                    for part in file_info.part_urls:
+                        part_number = part.part_number
+                        chunk = file_handle.read(part_size)
 
-                    with open(local_path, 'rb') as file_handle:
-                        for part in file_info.part_urls:
-                            part_number = part.part_number
-                            chunk = file_handle.read(part_size)
+                        try:
+                            upload_response = await upload_client.put(part.url, content=chunk)
+                            upload_response.raise_for_status()
+                        except Exception as exc:
+                            raise UploadError(
+                                f"Failed to upload part {part_number} for {file_info.filename}: {exc}"
+                            ) from exc
 
-                            try:
-                                upload_response = await upload_client.put(part.url, content=chunk)
-                                upload_response.raise_for_status()
-                            except Exception as exc:
-                                raise UploadError(
-                                    f"Failed to upload part {part_number} for {file_info.filename}: {exc}"
-                                ) from exc
+                        etag = upload_response.headers.get('ETag')
+                        if not etag:
+                            raise UploadError(
+                                f"Upload part {part_number} for {file_info.filename} "
+                                "succeeded but no ETag header was returned"
+                            )
+                        if not etag.startswith('"'):
+                            etag = f'"{etag}"'
 
-                            etag = upload_response.headers.get('ETag')
-                            if not etag:
-                                raise UploadError(
-                                    f"Upload part {part_number} for {file_info.filename} "
-                                    "succeeded but no ETag header was returned"
-                                )
-                            if not etag.startswith('"'):
-                                etag = f'"{etag}"'
+                        completed_parts.append({
+                            "PartNumber": part_number,
+                            "ETag": etag,
+                        })
 
-                            completed_parts.append({
-                                "PartNumber": part_number,
-                                "ETag": etag,
-                            })
-
-                    await self.complete_ingest(
-                        job_id=ingest_response.job_id,
-                        bin_id=bin_id,
-                        file_id=file_info.file_id,
-                        upload_id=file_info.upload_id,
-                        parts=completed_parts,
-                    )
+                await self.complete_ingest(
+                    job_id=ingest_response.job_id,
+                    file_id=file_info.file_id,
+                    upload_id=file_info.upload_id,
+                    parts=completed_parts,
+                )
 
         return ingest_response.job_id
 
