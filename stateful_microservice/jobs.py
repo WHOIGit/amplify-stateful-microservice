@@ -153,11 +153,10 @@ class JobStore:
     # Ingest Metadata Helpers
     # ==========================================================================
 
-    def init_ingest_job(self, job_id: str, total_files: int):
+    def init_ingest_job(self, job_id: str):
         """Initialize ingest metadata for a job."""
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
-            metadata['total_files'] = total_files
             metadata['uploads'] = {}
             metadata['file_order'] = []
             self._upload_metadata[job_id] = metadata

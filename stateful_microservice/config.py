@@ -13,11 +13,6 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # API Settings
-    api_title: str = "Stateful Microservice"
-    api_version: str = "1.0.0"
-    api_description: str = "S3-based async processing framework for long-running jobs"
-
     # S3 Settings (for local S3-compatible storage like MinIO)
     s3_endpoint_url: str = "http://localhost:9000"  # Your local S3 endpoint
     s3_bucket: str = "stateful-microservice"
@@ -35,15 +30,10 @@ class Settings(BaseSettings):
 
     # Job settings
     max_concurrent_jobs: int = 3
-    job_timeout_seconds: int = 3600  # 1 hour
 
     # Artifact shard settings
     artifact_shard_size_mb: int = 256  # Target size for TAR shards
-    artifacts_per_shard_estimate: int = 10000  # Rough estimate for pre-allocation
     responses_chunk_size_mb: int = 64  # Chunk size for JSONL uploads
-
-    # Processing settings
-    batch_size: int = 32  # For micro-batching (if needed later)
 
 
 # Global settings instance

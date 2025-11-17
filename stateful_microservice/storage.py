@@ -135,42 +135,6 @@ class S3Client:
             logger.error(f"Failed to complete multipart upload for {key}: {e}")
             raise
 
-    def abort_multipart_upload(self, key: str, upload_id: str):
-        """
-        Abort a multipart upload (cleanup).
-
-        Args:
-            key: S3 object key
-            upload_id: Multipart upload ID
-        """
-        try:
-            self.client.abort_multipart_upload(
-                Bucket=self.bucket,
-                Key=key,
-                UploadId=upload_id,
-            )
-            logger.info(f"Aborted multipart upload for {key}")
-        except ClientError as e:
-            logger.warning(f"Failed to abort multipart upload for {key}: {e}")
-
-    def object_exists(self, key: str) -> bool:
-        """
-        Check if an object exists in S3.
-
-        Args:
-            key: S3 object key
-
-        Returns:
-            True if object exists, False otherwise
-        """
-        try:
-            self.client.head_object(Bucket=self.bucket, Key=key)
-            return True
-        except ClientError as e:
-            if e.response['Error']['Code'] == '404':
-                return False
-            raise
-
     def get_object_url(self, key: str) -> str:
         """
         Get the S3 URI for an object.
@@ -211,30 +175,6 @@ class S3Client:
             logger.info(f"Downloaded object from {key}")
         except ClientError as e:
             logger.error(f"Failed to download object from {key}: {e}")
-            raise
-
-    def list_objects(self, prefix: str, max_keys: int = 1000) -> List[str]:
-        """
-        List objects with a given prefix.
-
-        Args:
-            prefix: S3 key prefix
-            max_keys: Maximum number of keys to return
-
-        Returns:
-            List of object keys
-        """
-        try:
-            response = self.client.list_objects_v2(
-                Bucket=self.bucket,
-                Prefix=prefix,
-                MaxKeys=max_keys,
-            )
-            if 'Contents' not in response:
-                return []
-            return [obj['Key'] for obj in response['Contents']]
-        except ClientError as e:
-            logger.error(f"Failed to list objects with prefix {prefix}: {e}")
             raise
 
 

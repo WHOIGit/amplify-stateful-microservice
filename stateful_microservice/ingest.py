@@ -40,7 +40,7 @@ class IngestService:
         job_id = str(uuid.uuid4())
         logger.info(f"Starting ingest for {len(request.files)} file(s), job {job_id}")
 
-        job_store.init_ingest_job(job_id, len(request.files))
+        job_store.init_ingest_job(job_id)
 
         files_info: List[FileUploadInfo] = []
 
@@ -70,11 +70,8 @@ class IngestService:
                 job_id=job_id,
                 file_id=file_id,
                 upload_info={
-                    'filename': filename,
                     's3_key': s3_key,
                     'upload_id': upload_id,
-                    'size_bytes': size_bytes,
-                    'num_parts': num_parts,
                     'completed': False,
                 }
             )
