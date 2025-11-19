@@ -2,11 +2,11 @@
 
 import uuid
 from datetime import datetime
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 from threading import Lock
 import logging
 
-from .models import JobStatus, JobResult
+from .models import JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class JobStore:
         started_at: Optional[datetime] = None,
         completed_at: Optional[datetime] = None,
         error: Optional[str] = None,
-        result: Optional[JobResult] = None,
+        result: Optional[Dict[str, Any]] = None,
         progress: Optional[Dict] = None,
     ):
         """

@@ -41,12 +41,6 @@ class IngestCompleteResponse(BaseModel):
     status: str
 
 
-class JobResult(BaseModel):
-    """Job results."""
-    job_id: str
-    payload: Dict[str, Any] = Field(default_factory=dict)
-
-
 class JobStatus(BaseModel):
     """Job status information."""
     job_id: str
@@ -55,7 +49,7 @@ class JobStatus(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
-    result: Optional[JobResult] = None
+    result: Optional[Dict[str, Any]] = None
     progress: Optional[Dict] = None
 
 

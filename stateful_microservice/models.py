@@ -120,12 +120,6 @@ class JobSubmitResponse(BaseModel):
     created_at: datetime = Field(..., description="Job creation timestamp")
 
 
-class JobResult(BaseModel):
-    """Result summary for a completed job."""
-    job_id: str = Field(..., description="Job ID")
-    payload: Dict[str, Any] = Field(default_factory=dict, description="Processor-defined result payload")
-
-
 class JobStatus(BaseModel):
     """Job status information."""
     job_id: str = Field(..., description="Job ID")
@@ -134,5 +128,5 @@ class JobStatus(BaseModel):
     started_at: Optional[datetime] = Field(None, description="Processing start time")
     completed_at: Optional[datetime] = Field(None, description="Completion time")
     error: Optional[str] = Field(None, description="Error message if failed")
-    result: Optional[JobResult] = Field(None, description="Results if completed")
+    result: Optional[Dict[str, Any]] = Field(None, description="Processor-defined result payload")
     progress: Optional[Dict[str, Any]] = Field(None, description="Progress information")

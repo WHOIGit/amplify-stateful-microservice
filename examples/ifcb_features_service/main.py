@@ -1,7 +1,7 @@
 """IFCB Features Extraction Microservice."""
 
 from stateful_microservice import create_app
-from .processor import FeaturesProcessor
+from processor import FeaturesProcessor
 
 # Create FastAPI app with features processor
 app = create_app(FeaturesProcessor())

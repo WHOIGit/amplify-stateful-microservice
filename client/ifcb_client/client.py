@@ -621,84 +621,49 @@ class IFCBClient:
 
         return local_path
 
-    def download_results(
+    def download_file(
         self,
-        job_id: str,
+        uri: str,
         output_dir: Path | str,
-        include_features: bool = True,
-        include_masks: bool = True,
-        include_index: bool = True,
         overwrite: bool = False,
-    ) -> Dict[str, List[Path]]:
+    ) -> Path:
         """
-        Download processed job outputs (features, masks, results index) from S3.
+        Download a single file from S3.
 
         Args:
-            job_id: Completed job identifier.
-            output_dir: Local directory where files will be stored.
-            include_features: Download Parquet feature files.
-            include_masks: Download mask TAR shards and JSON indices.
-            include_index: Download results.json index file.
-            overwrite: Overwrite existing files if they already exist.
+            uri: S3 URI (s3://bucket/key) to download
+            output_dir: Local directory where file will be stored
+            overwrite: Overwrite existing file if it already exists
 
         Returns:
-            Dict mapping output categories to lists of downloaded paths.
+            Path to the downloaded file
         """
-        status = self.get_job(job_id)
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return self._download_from_s3(uri, output_dir, overwrite)
 
-        if status.status == "failed":
-            raise JobFailedError(job_id, status.error or "Unknown error")
-        if status.status != "completed" or not status.result:
-            raise ValueError(f"Job {job_id} is not completed (status={status.status})")
+    def download_files(
+        self,
+        uris: List[str],
+        output_dir: Path | str,
+        overwrite: bool = False,
+    ) -> List[Path]:
+        """
+        Download multiple files from S3.
 
+        Args:
+            uris: List of S3 URIs (s3://bucket/key) to download
+            output_dir: Local directory where files will be stored
+            overwrite: Overwrite existing files if they already exist
+
+        Returns:
+            List of paths to the downloaded files
+        """
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        downloads: Dict[str, List[Path]] = {"features": [], "masks": [], "indices": []}
-        job_bucket: Optional[str] = None
-        job_prefix: Optional[str] = None
-
-        def record_location(uri: str):
-            nonlocal job_bucket, job_prefix
-            bucket, key = self._parse_s3_uri(uri)
-            if job_bucket is None:
-                job_bucket = bucket
-            if job_prefix is None:
-                parts = key.split("/", 2)
-                if len(parts) >= 2:
-                    job_prefix = "/".join(parts[:2])
-
-        if include_features and status.result.features.uris:
-            for uri in status.result.features.uris:
-                record_location(uri)
-                local_path = self._download_from_s3(uri, output_dir, overwrite)
-                downloads["features"].append(local_path)
-
-        if include_masks and status.result.masks.shards:
-            for shard in status.result.masks.shards:
-                record_location(shard.uri)
-                local_tar = self._download_from_s3(shard.uri, output_dir, overwrite)
-                downloads["masks"].append(local_tar)
-
-                record_location(shard.index_uri)
-                local_index = self._download_from_s3(shard.index_uri, output_dir, overwrite)
-                downloads["indices"].append(local_index)
-
-        if include_index:
-            if job_bucket is None or job_prefix is None:
-                if status.result.features.uris:
-                    bucket, key = self._parse_s3_uri(status.result.features.uris[0])
-                elif status.result.masks.shards:
-                    bucket, key = self._parse_s3_uri(status.result.masks.shards[0].uri)
-                else:
-                    raise ValueError("Unable to determine results location; no URIs available")
-                job_bucket = job_bucket or bucket
-                parts = key.split("/", 2)
-                if len(parts) >= 2:
-                    job_prefix = job_prefix or "/".join(parts[:2])
-            results_uri = f"s3://{job_bucket}/{job_prefix}/results.json"
-            local_index = self._download_from_s3(results_uri, output_dir, overwrite)
-            downloads["indices"].append(local_index)
-
-        # Remove empty categories for cleaner return value
-        return {category: paths for category, paths in downloads.items() if paths}
+        downloaded = []
+        for uri in uris:
+            local_path = self._download_from_s3(uri, output_dir, overwrite)
+            downloaded.append(local_path)
+        return downloaded

@@ -144,18 +144,60 @@ def main() -> None:
 
         if result.status == "completed":
             print("✓ Processing complete!")
-            print(f"  Bins: {result.result.counts.bins}")
-            print(f"  ROIs: {result.result.counts.rois}")
-            print(f"  Features sample: {result.result.features.uris[0]}")
+
+            # Result is a dict containing the processor's FeaturesJobResult
+            payload = result.result
+
+            # Show metrics
+            metrics = payload.get("metrics", {})
+            print(f"  Inputs processed: {metrics.get('inputs_processed', 0)}")
+            print(f"  Records emitted: {metrics.get('records_emitted', 0)}")
+            print(f"  Artifacts emitted: {metrics.get('artifacts_emitted', 0)}")
+
+            # Show outputs
+            outputs = payload.get("outputs", [])
+            if outputs:
+                print(f"  Outputs: {len(outputs)} files generated")
+                for output in outputs:
+                    if "name" in output:
+                        print(f"    - {output['name']}: {len(output.get('uris', []))} URIs")
+
+            # Show results index
+            results_uri = payload.get("results_index_uri")
+            if results_uri:
+                print(f"  Results index: {results_uri}")
 
             if not args.no_download:
                 output_dir = (args.output_dir / job_id).resolve()
-                downloads = client.download_results(job_id, output_dir, overwrite=True)
+                print(f"Downloading artifacts to {output_dir}:")
 
-                print(f"Downloaded artifacts to {output_dir}:")
-                for category, paths in downloads.items():
-                    for path in paths:
-                        print(f"  [{category}] {path}")
+                # Extract URIs from the FeaturesJobResult structure
+                all_uris = []
+
+                # Collect URIs from outputs
+                for output in payload.get("outputs", []):
+                    output_name = output.get("name", "output")
+                    uris = output.get("uris", [])
+                    if uris:
+                        print(f"  Downloading {len(uris)} file(s) for {output_name}...")
+                        all_uris.extend(uris)
+
+                    # Also handle shards if present
+                    for shard in output.get("shards", []):
+                        if shard.get("uri"):
+                            all_uris.append(shard["uri"])
+                        if shard.get("index_uri"):
+                            all_uris.append(shard["index_uri"])
+
+                # Download results index
+                if results_uri:
+                    print(f"  Downloading results index...")
+                    all_uris.append(results_uri)
+
+                # Download all files
+                if all_uris:
+                    downloaded_paths = client.download_files(all_uris, output_dir, overwrite=True)
+                    print(f"✓ Downloaded {len(downloaded_paths)} file(s) to {output_dir}")
         else:
             print(f"✗ Processing failed: {result.error}")
     finally:

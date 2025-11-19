@@ -165,15 +165,20 @@ client.close()
 ```python
 from pathlib import Path
 
-downloads = client.download_results(
-    job_id,
-    output_dir=Path("./ifcb-results") / job_id,
-    overwrite=True,
-)
+# Get completed job
+result = client.wait_for_job(job_id)
 
-for category, files in downloads.items():
-    for file_path in files:
-        print(category, file_path)
+# Extract S3 URIs from result (structure depends on the processor)
+# For example, if using the IFCB features processor:
+uris_to_download = []
+for output in result.result.get("outputs", []):
+    uris_to_download.extend(output.get("uris", []))
+
+# Download files
+output_dir = Path("./results") / job_id
+downloaded = client.download_files(uris_to_download, output_dir, overwrite=True)
+
+print(f"Downloaded {len(downloaded)} files to {output_dir}")
 ```
 
 ## API Reference
@@ -192,7 +197,8 @@ for category, files in downloads.items():
 - `upload_bin(bin_id, file_paths)` - Upload and process bin files
 - `upload_bins(bins)` - Upload a mapping of bin IDs to local files in one job
 - `upload_bins_from_directory(root, recursive=True, skip_incomplete=False)` - Discover and upload bins under a directory
-- `download_results(job_id, output_dir, include_features=True, include_masks=True, include_index=True, overwrite=False)` - Fetch artifacts from S3
+- `download_file(uri, output_dir, overwrite=False)` - Download a single file from S3
+- `download_files(uris, output_dir, overwrite=False)` - Download multiple files from S3
 
 ### AsyncIFCBClient
 

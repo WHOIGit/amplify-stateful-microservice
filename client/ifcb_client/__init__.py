@@ -6,7 +6,6 @@ from .models import (
     HealthResponse,
     JobStatus,
     JobSubmitResponse,
-    JobResult,
     Manifest,
 )
 from .exceptions import (
@@ -31,7 +30,6 @@ __all__ = [
     "HealthResponse",
     "JobStatus",
     "JobSubmitResponse",
-    "JobResult",
     "Manifest",
     # Exceptions
     "IFCBClientError",

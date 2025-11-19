@@ -13,7 +13,6 @@ import logging
 from .processor import BaseProcessor, JobInput
 from .jobs import job_store
 from .storage import s3_client
-from .models import JobResult
 from .config import settings
 
 logger = logging.getLogger(__name__)
@@ -92,18 +91,12 @@ class JobProcessor:
                 # Clean up temporary files
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
-            # Wrap result
-            job_result = JobResult(
-                job_id=job_id,
-                payload=processor_result.model_dump(),
-            )
-
             # Update job as completed
             job_store.update_job(
                 job_id=job_id,
                 status="completed",
                 completed_at=datetime.utcnow(),
-                result=job_result,
+                result=processor_result.model_dump(),
                 progress={
                     "stage": "completed",
                     "percent": 100.0,
