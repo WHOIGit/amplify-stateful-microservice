@@ -1,28 +1,211 @@
 # Amplify Stateful Microservices
 
-This repo captures everything required to run long-running, queue-backed processing APIs. It contains the generic production library (`stateful_microservice/`), a reference IFCB features processor (`examples/ifcb_features_service/`) that demonstrates how to plug in domain logic, and the accompanying Python client used by the IFCB tooling to submit ingest requests and poll for job completion.
+A framework for building long-running, queue-backed processing microservices. Submit jobs via S3 manifests or multipart file uploads, process them asynchronously, and poll for completion.
 
-## Developing a New Microservice
+## Quick Start: Creating a Service
 
-1. Implement `stateful_microservice.BaseProcessor` for your algorithm. `process_input` receives a `JobInput` containing the job ID plus the list of downloaded local file paths. Return an instance of your processor’s `result_model` after you’ve uploaded whatever outputs/artifacts your service produces (return `None` only if you’re deferring completion until a later invocation).
-   - Inspect `job_input.local_paths` (string paths) and decide how to open/process each file for your domain. The worker downloads all files for an input into a temporary directory and cleans it up after `process_input` returns.
-   - Use the optional helpers in `stateful_microservice.output_writers` (e.g., `JsonlResultUploader`, `WebDatasetUploader`, `write_results_index`) to serialize structured data or artifacts to S3 before returning your result model. Those helpers are entirely opt-in; processors can always manage their own uploads manually.
-   - Set `result_model` on your processor (defaults to `DefaultResult`) so you have a typed schema for whatever completion payload you emit. Whatever you return is serialized and exposed under `job.result.payload` for clients to consume.
-2. Call `stateful_microservice.create_app(processor, ServiceConfig(...))` to get a FastAPI instance that exposes `/ingest/*`, `/jobs`, and `/health`.
-3. Run workers via `stateful_microservice.create_worker_pool(processor)` when deploying outside of the FastAPI lifespan context.
-4. Use the code in `examples/ifcb_features_service/` as a template for Dockerfiles, `.env` files, and configuration.
+### 1. Define Your Processor
 
-Artifacts returned from `process_input` must already be serialized as bytes (PNG, npy, etc.). The framework uploads them directly without additional conversion.
+```python
+from pydantic import BaseModel
+from stateful_microservice import BaseProcessor, JobInput
+
+class MyResult(BaseModel):
+    """Custom result schema."""
+    processed_files: int
+    output_uri: str
+
+class MyProcessor(BaseProcessor):
+    """Your algorithm implementation."""
+
+    @property
+    def name(self) -> str:
+        return "my-processor"
+
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+
+    def process_input(self, job_input: JobInput) -> MyResult:
+        """
+        Process downloaded files.
+
+        Args:
+            job_input: Contains job_id and local_paths (list of file paths)
+
+        Returns:
+            Result as a Pydantic model
+        """
+        # Access downloaded files
+        for file_path in job_input.local_paths:
+            # Process your files...
+            pass
+
+        # Upload results to S3 (you handle this)
+        output_uri = "s3://bucket/results/output.json"
+
+        return MyResult(
+            processed_files=len(job_input.local_paths),
+            output_uri=output_uri
+        )
+```
+
+### 2. Create the FastAPI App
+
+```python
+from stateful_microservice import create_app
+
+# Instantiate your processor
+processor = MyProcessor()
+
+# Create the FastAPI app
+app = create_app(processor)
+
+# Run with: uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+That's it! Your service now has:
+- `POST /jobs` - Submit jobs via manifest
+- `GET /jobs/{job_id}` - Check job status
+- `POST /ingest/start` - Upload files directly
+- `POST /ingest/complete` - Complete multipart upload
+- `GET /health` - Health check
+
+### 3. Progress Reporting (Optional)
+
+```python
+def process_input(self, job_input: JobInput) -> MyResult:
+    total = len(job_input.local_paths)
+
+    for i, file_path in enumerate(job_input.local_paths):
+        # Process file...
+
+        # Report progress
+        self.report_progress(
+            stage="processing",
+            percent=(i + 1) / total * 100.0,
+            message=f"Processed {i + 1}/{total} files"
+        )
+
+    return MyResult(...)
+```
+
+## Job Submission Methods
+
+### Option 1: Manifest URI
+Files already in S3, reference a manifest file:
+```bash
+curl -X POST http://localhost:8000/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"manifest_uri": "s3://bucket/manifest.json"}'
+```
+
+### Option 2: Inline Manifest
+Files already in S3, provide list directly:
+```bash
+curl -X POST http://localhost:8000/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "manifest_inline": {
+      "files": ["s3://bucket/file1.dat", "s3://bucket/file2.dat"]
+    }
+  }'
+```
+
+### Option 3: Multipart Upload
+Upload local files, then process:
+```python
+from ifcb_client import IFCBClient
+
+client = IFCBClient("http://localhost:8000")
+job_id = client.upload_bin(
+    bin_id="my-data",
+    file_paths={
+        '.dat': Path('/local/data.dat'),
+        '.hdr': Path('/local/data.hdr'),
+    }
+)
+result = client.wait_for_job(job_id)
+```
 
 ## Client Usage
 
-The `client/` folder is ready to publish separately so automation can programmatically:
+Install the client library:
+```bash
+pip install -e ./client
+```
 
-- Open multipart uploads via `/ingest/start`
-- Upload domain-specific payloads directly to S3
-- Submit manifests and poll `/jobs/{id}`
-- Download result indexes once processing completes
+Submit jobs and poll for results:
+```python
+from ifcb_client import IFCBClient
+from pathlib import Path
 
-The framework provides optional helpers for emitting JSON Lines (`JsonlResultUploader`) and WebDataset artifact shards (`WebDatasetUploader`). Processors are free to use these, implement their own serialization (e.g., Parquet), or return only metadata in their result model.
+client = IFCBClient("http://localhost:8000")
 
-Install from this repo by pointing `pip` at the packaged wheel or using editable installs during development.
+# Submit a job
+job = client.submit_job(
+    manifest_inline={"files": ["s3://bucket/data.dat"]}
+)
+
+# Wait for completion
+result = client.wait_for_job(job.job_id)
+
+# Access processor-defined result
+print(result.result)  # Dict with your processor's output
+
+# Download files if URIs are in the result
+uris = result.result.get("output_uris", [])
+if uris:
+    downloaded = client.download_files(uris, Path("./output"))
+```
+
+See `client/README.md` for full documentation.
+
+## Optional Output Helpers
+
+The framework includes helpers for common output patterns:
+
+### JSONL Records
+```python
+from stateful_microservice.output_writers import JsonlResultUploader
+
+uploader = JsonlResultUploader(job_input.job_id, response_model=MyRecord)
+for record in records:
+    uploader.add_record(record)
+output = uploader.finalize()  # Returns dict with URIs
+```
+
+### WebDataset (TAR Shards)
+```python
+from stateful_microservice.output_writers import WebDatasetUploader
+
+uploader = WebDatasetUploader(job_input.job_id)
+for i, artifact in enumerate(artifacts):
+    uploader.add_artifact("input-1", f"{i:05d}", artifact, extension=".png")
+output = uploader.finalize()  # Returns dict with shard URIs
+```
+
+## Configuration
+
+Set via environment variables (`.env` file):
+
+```bash
+# S3 Storage
+S3_ENDPOINT_URL=http://localhost:9000
+S3_BUCKET=my-bucket
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+
+# Job Processing
+MAX_CONCURRENT_JOBS=3
+```
+
+See `stateful_microservice/config.py` for all options.
+
+## Example Service
+
+See `examples/ifcb_features_service/` for an example service that:
+- Extracts features from IFCB imagery
+- Uses output helpers for JSONL and WebDataset
+- Includes Docker setup
+- Shows progress reporting
