@@ -64,7 +64,7 @@ app = create_app(processor)
 # Run with: uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-That's it! Your service now has:
+The service will have:
 - `POST /jobs` - Submit jobs via manifest
 - `GET /jobs/{job_id}` - Check job status
 - `POST /ingest/start` - Upload files directly
