@@ -10,6 +10,7 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 import httpx
+from websockets.sync.client import connect
 
 from .models import (
     HealthResponse,
@@ -310,6 +311,31 @@ class IFCBClient:
                     raise JobTimeoutError(job_id, int(timeout))
 
             time.sleep(poll_interval)
+
+    def wait_for_job_ws(
+        self,
+        job_id: str,
+        timeout: Optional[float] = 3600.00,
+    ) -> JobStatus:
+        """ Wait for job completion using websocket. """
+        try:
+            ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
+            ws_url = f"{ws_url}/jobs/{job_id}/progress"
+
+            with connect(ws_url, open_timeout=timeout) as ws:
+                while True:
+                    msg = ws.recv()
+                    status = JobStatus(**json.loads(msg))
+
+                    if status.status == "completed":
+                        return status
+                    elif status.status == "failed":
+                        raise JobFailedError(job_id, status.error)
+
+        except Exception as e:
+            logger.warning(f"WebSocket failed: {e}. Falling back to polling.")
+            return self.wait_for_job(job_id, timout=timeout)
+
 
     # ============================================================================
     # Ingest Endpoints (Multipart Upload)

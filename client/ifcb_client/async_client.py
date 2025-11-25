@@ -3,7 +3,9 @@
 import asyncio
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Iterable
+
 import httpx
+import websockets
 
 from .models import (
     HealthResponse,
@@ -180,6 +182,30 @@ class AsyncIFCBClient:
                     raise JobTimeoutError(job_id, int(timeout))
 
             await asyncio.sleep(poll_interval)
+
+    async def wait_for_job_ws(
+        self,
+        job_id: str,
+        timeout: Optional[float] = 3600.0,
+    ) -> JobStatus:
+        """ Wait for job completion using websocket. """
+        try:
+            ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
+            ws_url = f"{ws_url}/jobs/{job_id}/progress"
+
+            async with websockets.connect(ws_url) as ws:
+                while True:
+                    msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
+                    status = JobStatus(**json.loads(msg))
+
+                    if status.status == "completed":
+                        return status
+                    elif status.status == "failed":
+                        raise JobFailedError(job_id, status.error)
+
+        except Exception as e:
+            logger.warning(f"WebSocket failed: {e}. Falling back to polling.")
+            return await self.wait_for_job(job_id, timeout=timeout)
 
     # ============================================================================
     # Ingest Endpoints

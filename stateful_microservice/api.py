@@ -3,8 +3,9 @@
 from contextlib import asynccontextmanager
 import logging
 from dataclasses import dataclass
+from typing import Dict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 from .processor import BaseProcessor
 from .worker import create_worker_pool
@@ -79,6 +80,9 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
 
     # Create worker pool with processor
     worker_pool = create_worker_pool(processor)
+
+    # Track websockets. One for each job.
+    active_websockets: Dict[str, WebSocket] = {}
 
     # Lifespan context manager for startup/shutdown
     @asynccontextmanager
@@ -230,5 +234,30 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
         except Exception as e:
             logger.error(f"Failed to list jobs: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to list jobs: {str(e)}")
+
+    @app.websocket("/jobs/{job_id}/progress")
+    async def websocket_progress(websocket: WebSocket, job_id: str):
+        """ WebSocket endpoint for progress updates. """
+        job = job_store.get_job(job_id)
+        if not job:
+            await websocket.close(code=1008, reason="Job not found.")
+
+        await websocket.accept()
+
+        active_websockets[job_id] = websocket 
+
+        try:
+            await websocket.send_json(job.dict())
+
+            while True:
+                try:
+                    await websocket.receive_text()
+                except:
+                    break
+
+        except WebSocketDisconnect:
+            pass
+        finally:
+            active_websockets.pop(job_id, None)
 
     return app
