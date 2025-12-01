@@ -133,17 +133,12 @@ class JobStore:
         self._notify_websocket(job_id)
 
     def _notify_websocket(self, job_id: str):
-        """ Send job update to websocket. """
-        from .api import active_websockets
+        """Send job update to websocket."""
+        from .websocket_manager import websocket_manager
 
-        if job_id in active_websockets:
-            ws = active_websockets[job_id]
-            job = self.get_job(job_id)
-
-            try:
-                asyncio.create_task(ws.send_json(job.dict()))
-            except RuntimeError:
-                pass
+        job = self.get_job(job_id)
+        if job:
+            websocket_manager.send_update(job_id, job.model_dump(mode='json'))
 
     def get_job_metadata(self, job_id: str) -> Optional[Dict]:
         """Get job metadata (manifest URI, parameters, etc.)."""

@@ -1,10 +1,11 @@
 """Synchronous IFCB client."""
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Iterable
+from typing import Optional, List, Dict, Any, Iterable, Callable
 
 import boto3
 from botocore.config import Config
@@ -30,6 +31,8 @@ from .exceptions import (
     DownloadError,
 )
 from .utils import calculate_part_size, validate_bin_files, discover_bins
+
+logger = logging.getLogger(__name__)
 
 
 class IFCBClient:
@@ -316,8 +319,20 @@ class IFCBClient:
         self,
         job_id: str,
         timeout: Optional[float] = 3600.00,
+        on_progress: Optional[Callable[[dict], None]] = None,
     ) -> JobStatus:
-        """ Wait for job completion using websocket. """
+        """
+        Wait for job completion using WebSocket.
+        Falls back to HTTP polling if WebSocket fails.
+
+        Args:
+            job_id: Job ID to wait for
+            timeout: Maximum time to wait in seconds
+            on_progress: Optional callback function called with progress dict on each update
+
+        Returns:
+            Final JobStatus
+        """
         try:
             ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
             ws_url = f"{ws_url}/jobs/{job_id}/progress"
@@ -327,6 +342,10 @@ class IFCBClient:
                     msg = ws.recv()
                     status = JobStatus(**json.loads(msg))
 
+                    # Call progress callback if provided
+                    if on_progress and status.progress:
+                        on_progress(status.progress)
+
                     if status.status == "completed":
                         return status
                     elif status.status == "failed":
@@ -334,7 +353,7 @@ class IFCBClient:
 
         except Exception as e:
             logger.warning(f"WebSocket failed: {e}. Falling back to polling.")
-            return self.wait_for_job(job_id, timout=timeout)
+            return self.wait_for_job(job_id, timeout=timeout)
 
 
     # ============================================================================

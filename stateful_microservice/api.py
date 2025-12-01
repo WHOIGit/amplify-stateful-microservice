@@ -1,5 +1,6 @@
 """FastAPI application factory for long-running stateful microservices."""
 
+import asyncio
 from contextlib import asynccontextmanager
 import logging
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from .models import (
 )
 from .ingest import ingest_service
 from .jobs import job_store
+from .websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
 
@@ -81,15 +83,16 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
     # Create worker pool with processor
     worker_pool = create_worker_pool(processor)
 
-    # Track websockets. One for each job.
-    active_websockets: Dict[str, WebSocket] = {}
-
     # Lifespan context manager for startup/shutdown
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Handle startup and shutdown events."""
         # Startup
         logger.info(f"Starting {service_name} Microservice v{service_version}")
+
+        # Capture the event loop for WebSocket manager
+        websocket_manager.set_event_loop(asyncio.get_running_loop())
+
         if worker_pool:
             await worker_pool.start()
             logger.info("Worker pool started")
@@ -241,14 +244,18 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
         job = job_store.get_job(job_id)
         if not job:
             await websocket.close(code=1008, reason="Job not found.")
+            return
 
         await websocket.accept()
 
-        active_websockets[job_id] = websocket 
+        # Register this connection with the manager
+        websocket_manager.register(job_id, websocket)
 
         try:
-            await websocket.send_json(job.dict())
+            # Send initial status
+            await websocket.send_json(job.model_dump(mode='json'))
 
+            # Keep connection alive
             while True:
                 try:
                     await websocket.receive_text()
@@ -258,6 +265,7 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
         except WebSocketDisconnect:
             pass
         finally:
-            active_websockets.pop(job_id, None)
+            # Unregister when connection closes
+            websocket_manager.unregister(job_id)
 
     return app

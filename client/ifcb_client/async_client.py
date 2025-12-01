@@ -1,8 +1,10 @@
 """Asynchronous IFCB client."""
 
 import asyncio
+import json
+import logging
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Iterable
+from typing import Optional, List, Dict, Any, Iterable, Callable
 
 import httpx
 import websockets
@@ -24,6 +26,8 @@ from .exceptions import (
     UploadError,
 )
 from .utils import calculate_part_size, validate_bin_files, discover_bins
+
+logger = logging.getLogger(__name__)
 
 
 class AsyncIFCBClient:
@@ -187,8 +191,20 @@ class AsyncIFCBClient:
         self,
         job_id: str,
         timeout: Optional[float] = 3600.0,
+        on_progress: Optional[Callable[[dict], None]] = None,
     ) -> JobStatus:
-        """ Wait for job completion using websocket. """
+        """
+        Wait for job completion using WebSocket (async version).
+        Falls back to HTTP polling if WebSocket fails.
+
+        Args:
+            job_id: Job ID to wait for
+            timeout: Maximum time to wait in seconds
+            on_progress: Optional callback function called with progress dict on each update
+
+        Returns:
+            Final JobStatus
+        """
         try:
             ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
             ws_url = f"{ws_url}/jobs/{job_id}/progress"
@@ -197,6 +213,10 @@ class AsyncIFCBClient:
                 while True:
                     msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
                     status = JobStatus(**json.loads(msg))
+
+                    # Call progress callback if provided
+                    if on_progress and status.progress:
+                        on_progress(status.progress)
 
                     if status.status == "completed":
                         return status
