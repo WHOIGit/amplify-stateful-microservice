@@ -1,0 +1,11 @@
+services:
+  simple-test:
+    build:
+      context: ../..
+      dockerfile: examples/simple_websocket_test/Dockerfile
+    ports:
+      - "8032:8032"
+    env_file:
+      - .env
+    environment:
+      - MAX_CONCURRENT_JOBS=2

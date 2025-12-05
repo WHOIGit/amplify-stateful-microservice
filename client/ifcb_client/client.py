@@ -1,5 +1,6 @@
 """Synchronous IFCB client."""
 
+import base64
 import json
 import logging
 import os
@@ -320,6 +321,8 @@ class IFCBClient:
         job_id: str,
         timeout: Optional[float] = 3600.00,
         on_progress: Optional[Callable[[dict], None]] = None,
+        on_artifact: Optional[Callable[[str, Path], None]] = None,
+        artifact_output_dir: Optional[Path] = None,
     ) -> JobStatus:
         """
         Wait for job completion using WebSocket.
@@ -329,6 +332,8 @@ class IFCBClient:
             job_id: Job ID to wait for
             timeout: Maximum time to wait in seconds
             on_progress: Optional callback function called with progress dict on each update
+            on_artifact: Optional callback when artifact received: func(name, path)
+            artifact_output_dir: Directory to save artifacts
 
         Returns:
             Final JobStatus
@@ -340,16 +345,49 @@ class IFCBClient:
             with connect(ws_url, open_timeout=timeout) as ws:
                 while True:
                     msg = ws.recv()
-                    status = JobStatus(**json.loads(msg))
+                    message = json.loads(msg)
 
-                    # Call progress callback if provided
-                    if on_progress and status.progress:
-                        on_progress(status.progress)
+                    # Handle typed messages
+                    msg_type = message.get("type", "progress")
+                    data = message.get("data", message)
 
-                    if status.status == "completed":
-                        return status
-                    elif status.status == "failed":
-                        raise JobFailedError(job_id, status.error)
+                    if msg_type == "progress":
+                        status = JobStatus(**data)
+
+                        # Call progress callback if provided
+                        if on_progress and status.progress:
+                            on_progress(status.progress)
+
+                        if status.status == "completed":
+                            return status
+                        elif status.status == "failed":
+                            raise JobFailedError(job_id, status.error)
+
+                    elif msg_type == "artifact":
+                        # Decode base64 data
+                        file_data = base64.b64decode(data["data"])
+
+                        # Verify size
+                        if len(file_data) != data["size_bytes"]:
+                            logger.warning(
+                                f"Size mismatch for {data['name']}: "
+                                f"expected {data['size_bytes']}, got {len(file_data)}"
+                            )
+
+                        # Save to disk
+                        if artifact_output_dir:
+                            artifact_output_dir = Path(artifact_output_dir)
+                            artifact_output_dir.mkdir(parents=True, exist_ok=True)
+
+                            output_path = artifact_output_dir / data["name"]
+                            with open(output_path, 'wb') as f:
+                                f.write(file_data)
+
+                            logger.info(f"Saved artifact: {output_path} ({len(file_data)} bytes)")
+
+                            # Call user callback
+                            if on_artifact:
+                                on_artifact(data["name"], output_path)
 
         except Exception as e:
             logger.warning(f"WebSocket failed: {e}. Falling back to polling.")
