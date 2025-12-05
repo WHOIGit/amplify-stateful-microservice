@@ -88,6 +88,21 @@ def process_input(self, job_input: JobInput) -> MyResult:
         )
 
     return MyResult(...)
+
+### 4. Artifact Transfer (Optional)
+
+Use the processor helper to push a file back to the client over the WebSocket:
+
+```python
+def process_input(self, job_input: JobInput) -> MyResult:
+    # ... run processing, write an artifact to disk ...
+    artifact_path = Path("/tmp/outputs/summary.json")
+
+    # Send over WebSocket for this job
+    self.send_artifact(job_input.job_id, artifact_path)
+
+    return MyResult(...)
+```
 ```
 
 ## Job Submission Methods
