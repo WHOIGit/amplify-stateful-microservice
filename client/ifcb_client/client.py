@@ -1,18 +1,15 @@
 """Synchronous IFCB client."""
 
-import base64
 import json
-import logging
 import os
 import time
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Iterable, Callable
+from typing import Optional, List, Dict, Any, Iterable
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 import httpx
-from websockets.sync.client import connect
 
 from .models import (
     HealthResponse,
@@ -32,8 +29,6 @@ from .exceptions import (
     DownloadError,
 )
 from .utils import calculate_part_size, validate_bin_files, discover_bins
-
-logger = logging.getLogger(__name__)
 
 
 class IFCBClient:
@@ -315,84 +310,6 @@ class IFCBClient:
                     raise JobTimeoutError(job_id, int(timeout))
 
             time.sleep(poll_interval)
-
-    def wait_for_job_ws(
-        self,
-        job_id: str,
-        timeout: Optional[float] = 3600.00,
-        on_progress: Optional[Callable[[dict], None]] = None,
-        on_artifact: Optional[Callable[[str, Path], None]] = None,
-        artifact_output_dir: Optional[Path] = None,
-    ) -> JobStatus:
-        """
-        Wait for job completion using WebSocket.
-        Falls back to HTTP polling if WebSocket fails.
-
-        Args:
-            job_id: Job ID to wait for
-            timeout: Maximum time to wait in seconds
-            on_progress: Optional callback function called with progress dict on each update
-            on_artifact: Optional callback when artifact received: func(name, path)
-            artifact_output_dir: Directory to save artifacts
-
-        Returns:
-            Final JobStatus
-        """
-        try:
-            ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
-            ws_url = f"{ws_url}/jobs/{job_id}/progress"
-
-            with connect(ws_url, open_timeout=timeout) as ws:
-                while True:
-                    msg = ws.recv()
-                    message = json.loads(msg)
-
-                    # Handle typed messages
-                    msg_type = message.get("type", "progress")
-                    data = message.get("data", message)
-
-                    if msg_type == "progress":
-                        status = JobStatus(**data)
-
-                        # Call progress callback if provided
-                        if on_progress and status.progress:
-                            on_progress(status.progress)
-
-                        if status.status == "completed":
-                            return status
-                        elif status.status == "failed":
-                            raise JobFailedError(job_id, status.error)
-
-                    elif msg_type == "artifact":
-                        # Decode base64 data
-                        file_data = base64.b64decode(data["data"])
-
-                        # Verify size
-                        if len(file_data) != data["size_bytes"]:
-                            logger.warning(
-                                f"Size mismatch for {data['name']}: "
-                                f"expected {data['size_bytes']}, got {len(file_data)}"
-                            )
-
-                        # Save to disk
-                        if artifact_output_dir:
-                            artifact_output_dir = Path(artifact_output_dir)
-                            artifact_output_dir.mkdir(parents=True, exist_ok=True)
-
-                            output_path = artifact_output_dir / data["name"]
-                            with open(output_path, 'wb') as f:
-                                f.write(file_data)
-
-                            logger.info(f"Saved artifact: {output_path} ({len(file_data)} bytes)")
-
-                            # Call user callback
-                            if on_artifact:
-                                on_artifact(data["name"], output_path)
-
-        except Exception as e:
-            logger.warning(f"WebSocket failed: {e}. Falling back to polling.")
-            return self.wait_for_job(job_id, timeout=timeout)
-
 
     # ============================================================================
     # Ingest Endpoints (Multipart Upload)
