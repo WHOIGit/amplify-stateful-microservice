@@ -7,5 +7,3 @@ services:
       - "8032:8032"
     env_file:
       - .env
-    environment:
-      - MAX_CONCURRENT_JOBS=2
