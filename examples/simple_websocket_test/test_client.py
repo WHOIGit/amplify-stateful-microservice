@@ -61,7 +61,7 @@ def main():
     output_dir = Path("./test_output")
     output_dir.mkdir(exist_ok=True)
 
-    ws_url = f"ws://localhost:8032/jobs/{job_id}/progress"
+    ws_url = f"ws://localhost:8032/jobs/{job_id}/"
 
     with connect(ws_url) as ws:
         while True:

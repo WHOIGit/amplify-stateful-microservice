@@ -238,7 +238,7 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
             logger.error(f"Failed to list jobs: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to list jobs: {str(e)}")
 
-    @app.websocket("/jobs/{job_id}/progress")
+    @app.websocket("/jobs/{job_id}/")
     async def websocket_progress(websocket: WebSocket, job_id: str):
         """ WebSocket endpoint for progress updates. """
         job = job_store.get_job(job_id)

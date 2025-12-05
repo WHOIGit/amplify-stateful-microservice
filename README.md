@@ -70,6 +70,7 @@ The service will have:
 - `POST /ingest/start` - Upload files directly
 - `POST /ingest/complete` - Complete multipart upload
 - `GET /health` - Health check
+- `WS /jobs/{job_id}/` - Progress and artifact streaming (WebSocket)
 
 ### 3. Progress Reporting (Optional)
 
