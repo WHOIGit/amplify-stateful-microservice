@@ -68,8 +68,8 @@ def main():
             msg = ws.recv()
             message = json.loads(msg)
 
-            msg_type = message.get("type", "progress")
-            data = message.get("data", message)
+            msg_type = message["type"]
+            data = message["data"]
 
             if msg_type == "progress":
                 status = data.get("status")

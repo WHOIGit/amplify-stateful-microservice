@@ -253,7 +253,7 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
 
         try:
             # Send initial status
-            await websocket.send_json(job.model_dump(mode='json'))
+            websocket_manager.send_update(job_id, job.model_dump(mode='json'))
 
             # Keep connection alive
             while True:
