@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from pydantic import BaseModel
@@ -80,3 +81,15 @@ class BaseProcessor(ABC):
         payload = {"stage": stage}
         payload.update(data)
         callback(payload)
+
+    def send_artifact(self, job_id: str, file_path: Path, content_type: Optional[str] = None) -> None:
+        """
+        Send an artifact file via WebSocket.
+
+        Args:
+            job_id: Job ID for routing the artifact
+            file_path: Path to the file to send
+            content_type: Optional MIME type for the file
+        """
+        from .websocket_manager import websocket_manager
+        websocket_manager.send_artifact(job_id, file_path, content_type)

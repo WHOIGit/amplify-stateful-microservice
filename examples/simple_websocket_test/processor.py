@@ -3,14 +3,12 @@
 import tempfile
 import time
 from pathlib import Path
-from typing import List
 
 from PIL import Image
 from pydantic import BaseModel
 
 from stateful_microservice import BaseProcessor
 from stateful_microservice.processor import JobInput
-from stateful_microservice.websocket_manager import websocket_manager
 
 
 class SimpleResult(BaseModel):
@@ -50,7 +48,7 @@ class SimpleTestProcessor(BaseProcessor):
             img.save(image_path, format="PNG")
 
             # Stream it via WebSocket
-            websocket_manager.send_artifact(job_input.job_id, image_path)
+            self.send_artifact(job_input.job_id, image_path)
 
             # Wait 2 seconds before next image (except after the last one)
             if i < 9:
