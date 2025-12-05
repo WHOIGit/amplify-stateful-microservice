@@ -6,6 +6,8 @@ from typing import Dict, Optional, List, Any
 from threading import Lock
 import logging
 
+import asyncio
+
 from .models import JobStatus
 
 logger = logging.getLogger(__name__)
@@ -127,6 +129,16 @@ class JobStore:
                 job.progress = progress
 
         logger.info(f"Updated job {job_id}: status={status}")
+
+        self._notify_websocket(job_id)
+
+    def _notify_websocket(self, job_id: str):
+        """Send job update to websocket."""
+        from .websocket_manager import websocket_manager
+
+        job = self.get_job(job_id)
+        if job:
+            websocket_manager.send_update(job_id, job.model_dump(mode='json'))
 
     def get_job_metadata(self, job_id: str) -> Optional[Dict]:
         """Get job metadata (manifest URI, parameters, etc.)."""

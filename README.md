@@ -70,6 +70,7 @@ The service will have:
 - `POST /ingest/start` - Upload files directly
 - `POST /ingest/complete` - Complete multipart upload
 - `GET /health` - Health check
+- `WS /jobs/{job_id}/` - Progress and artifact streaming (WebSocket)
 
 ### 3. Progress Reporting (Optional)
 
@@ -86,6 +87,21 @@ def process_input(self, job_input: JobInput) -> MyResult:
             percent=(i + 1) / total * 100.0,
             message=f"Processed {i + 1}/{total} files"
         )
+
+    return MyResult(...)
+```
+
+### 4. Artifact Transfer (Optional)
+
+Use the processor helper to push a file back to the client over the WebSocket:
+
+```python
+def process_input(self, job_input: JobInput) -> MyResult:
+    # ... run processing, write an artifact to disk ...
+    artifact_path = Path("/tmp/outputs/summary.json")
+
+    # Send over WebSocket for this job
+    self.send_artifact(job_input.job_id, artifact_path)
 
     return MyResult(...)
 ```
