@@ -88,6 +88,7 @@ def process_input(self, job_input: JobInput) -> MyResult:
         )
 
     return MyResult(...)
+```
 
 ### 4. Artifact Transfer (Optional)
 
@@ -102,7 +103,6 @@ def process_input(self, job_input: JobInput) -> MyResult:
     self.send_artifact(job_input.job_id, artifact_path)
 
     return MyResult(...)
-```
 ```
 
 ## Job Submission Methods
