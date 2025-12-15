@@ -11,6 +11,7 @@ dependencies = [
     "pydantic-settings>=2.5.0",
     "boto3>=1.35.0",
     "aiohttp>=3.10.0",
+    "amplify-storage-utils @ git+https://github.com/WHOIGit/amplify-storage-utils@v1.3.2",
 ]
 
 [build-system]
