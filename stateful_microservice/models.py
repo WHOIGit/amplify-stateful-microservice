@@ -130,3 +130,23 @@ class JobStatus(BaseModel):
     error: Optional[str] = Field(None, description="Error message if failed")
     result: Optional[Dict[str, Any]] = Field(None, description="Processor-defined result payload")
     progress: Optional[Dict[str, Any]] = Field(None, description="Progress information")
+
+
+# ============================================================================
+# Storage Capabilities Models
+# ============================================================================
+
+class StorageCapabilities(BaseModel):
+    """Storage backend capabilities."""
+    supports_multipart_upload: bool = Field(..., description="Backend supports S3 multipart uploads")
+    supports_presigned_urls: bool = Field(..., description="Backend supports presigned URLs")
+    backend_type: str = Field(..., description="Backend class name (e.g., BucketStore, FilesystemStore)")
+    max_simple_upload_mb: Optional[int] = Field(None, description="Max file size for simple uploads (MB)")
+
+
+class IngestUploadResponse(BaseModel):
+    """Response from simple file upload."""
+    job_id: str = Field(..., description="Job ID for uploaded file")
+    filename: str = Field(..., description="Original filename")
+    key: str = Field(..., description="Storage key")
+    size_bytes: int = Field(..., description="File size in bytes")

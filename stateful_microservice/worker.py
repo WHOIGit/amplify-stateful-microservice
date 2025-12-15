@@ -12,7 +12,7 @@ import logging
 
 from .processor import BaseProcessor, JobInput
 from .jobs import job_store
-from .storage import s3_client
+from .storage_factory import get_storage_adapter
 from .config import settings
 
 logger = logging.getLogger(__name__)
@@ -114,33 +114,43 @@ class JobProcessor:
                 error=str(e),
             )
 
-    def _parse_s3_uri(self, uri: str) -> tuple[str, str]:
+    def _parse_storage_uri(self, uri: str) -> str:
         """
-        Parse and validate an S3 URI.
+        Parse a storage URI and return the key.
+
+        Supports both S3 URIs (s3://bucket/key) and generic URIs (store://key).
 
         Args:
-            uri: S3 URI (s3://bucket/key)
+            uri: Storage URI
 
         Returns:
-            Tuple of (bucket, key)
+            Storage key
 
         Raises:
-            ValueError: If URI is invalid or bucket doesn't match configured bucket
+            ValueError: If URI format is invalid or bucket mismatch
         """
-        if not uri.startswith('s3://'):
-            raise ValueError(f"Invalid S3 URI: {uri}")
+        storage = get_storage_adapter()
 
-        parts = uri[5:].split('/', 1)
-        if len(parts) != 2:
-            raise ValueError(f"Invalid S3 URI format: {uri}")
+        if uri.startswith('s3://'):
+            # S3 URI format
+            parts = uri[5:].split('/', 1)
+            if len(parts) != 2:
+                raise ValueError(f"Invalid S3 URI format: {uri}")
 
-        bucket, key = parts
-        if bucket != s3_client.bucket:
+            bucket, key = parts
+            if bucket != storage.bucket_name:
+                raise ValueError(
+                    f"Bucket {bucket} does not match configured bucket {storage.bucket_name}"
+                )
+
+            return key
+        elif uri.startswith('store://'):
+            # Generic storage URI format
+            return uri[8:]
+        else:
             raise ValueError(
-                f"Bucket {bucket} does not match configured bucket {s3_client.bucket}"
+                f"Invalid storage URI format: {uri} (must start with s3:// or store://)"
             )
-
-        return bucket, key
 
     async def _load_manifest(self, metadata: Dict) -> Dict:
         """
@@ -160,12 +170,13 @@ class JobProcessor:
             return manifest_data
 
         if manifest_uri:
-            # Download from S3
-            bucket, key = self._parse_s3_uri(manifest_uri)
+            # Download from storage
+            storage = get_storage_adapter()
+            key = self._parse_storage_uri(manifest_uri)
 
             # Download manifest
             buffer = io.BytesIO()
-            s3_client.download_fileobj(key, buffer)
+            storage.download_fileobj(key, buffer)
             buffer.seek(0)
 
             # Parse manifest JSON
@@ -183,13 +194,14 @@ class JobProcessor:
         """Download input files and provide their local paths for processor use."""
         temp_dir = Path(tempfile.mkdtemp(prefix=f"{job_id}_"))
         local_paths: List[str] = []
+        storage = get_storage_adapter()
 
         for uri in file_uris:
-            bucket, key = self._parse_s3_uri(uri)
+            key = self._parse_storage_uri(uri)
 
             dest_path = temp_dir / Path(key).name
             with open(dest_path, 'wb') as f:
-                s3_client.download_fileobj(key, f)
+                storage.download_fileobj(key, f)
 
             local_paths.append(str(dest_path))
             logger.debug(f"Downloaded {uri} to {dest_path}")

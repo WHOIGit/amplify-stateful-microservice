@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import List
 import logging
 
-from .storage import s3_client
+from .storage_factory import get_storage_adapter
 from .jobs import job_store
 from .config import settings
 from .models import (
@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 class IngestService:
     """Service for managing multipart upload ingestion."""
 
+    def __init__(self):
+        """Initialize ingest service with storage adapter."""
+        self.storage = get_storage_adapter()
+
     def start_ingest(self, request: IngestStartRequest) -> IngestStartResponse:
         """
         Start ingestion for files (initiate multipart uploads).
@@ -33,7 +37,16 @@ class IngestService:
 
         Returns:
             Response with pre-signed URLs for all parts
+
+        Raises:
+            NotImplementedError: If backend doesn't support multipart uploads
         """
+        # Check backend capabilities
+        if not self.storage.supports_multipart_upload():
+            raise NotImplementedError(
+                "Multipart upload not supported by this backend. Use /ingest/upload instead."
+            )
+
         if not request.files:
             raise ValueError("At least one file must be provided")
 
@@ -56,12 +69,13 @@ class IngestService:
                 f"({size_bytes} bytes, {num_parts} part(s))"
             )
 
-            upload_id = s3_client.create_multipart_upload(s3_key)
+            upload_id = self.storage.create_multipart_upload(s3_key)
 
-            part_urls = s3_client.generate_presigned_part_urls(
+            part_urls = self.storage.generate_presigned_part_urls(
                 key=s3_key,
                 upload_id=upload_id,
                 num_parts=num_parts,
+                ttl_seconds=settings.multipart_url_ttl_seconds,
             )
 
             job_store.store_upload_info(
@@ -126,7 +140,7 @@ class IngestService:
         ]
 
         # Complete the multipart upload
-        etag = s3_client.complete_multipart_upload(
+        etag = self.storage.complete_multipart_upload(
             key=s3_key,
             upload_id=upload_id,
             parts=parts,

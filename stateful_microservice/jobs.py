@@ -197,8 +197,9 @@ class JobStore:
             return all(upload.get('completed') for upload in uploads.values())
 
     def get_completed_file_uris(self, job_id: str) -> List[str]:
-        """Get S3 URIs for all completed files in upload order."""
-        from .storage import s3_client
+        """Get storage URIs for all completed files in upload order."""
+        from .storage_factory import get_storage_adapter
+        storage = get_storage_adapter()
         with self._lock:
             metadata = self._upload_metadata.get(job_id, {})
             uploads = metadata.get('uploads', {})
@@ -207,7 +208,7 @@ class JobStore:
             for file_id in uploads.keys():
                 info = uploads[file_id]
                 if info.get('completed'):
-                    uris.append(s3_client.get_object_url(info['s3_key']))
+                    uris.append(storage.get_object_url(info['s3_key']))
             return uris
 
     def set_manifest_data(self, job_id: str, manifest_data: Dict):

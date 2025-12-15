@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from pydantic import BaseModel
 
 from .config import settings
-from .storage import s3_client
+from .storage_factory import get_storage_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ class JsonlResultUploader:
     def __init__(self, job_id: str, response_model: Optional[type[BaseModel]] = None):
         self.job_id = job_id
         self.response_model = response_model
+        self.storage = get_storage_adapter()
         self.buffer = io.BytesIO()
         self.max_file_size = settings.responses_chunk_size_mb * 1024 * 1024
         self.file_index = 0
@@ -57,8 +58,8 @@ class JsonlResultUploader:
 
         self.buffer.seek(0)
         key = f"{settings.s3_results_prefix}/{self.job_id}/responses_{self.file_index:05d}.jsonl"
-        s3_client.upload_fileobj(self.buffer, key)
-        self.uris.append(s3_client.get_object_url(key))
+        self.storage.upload_fileobj(self.buffer, key)
+        self.uris.append(self.storage.get_object_url(key))
 
         logger.info(f"Uploaded JSONL chunk {key} ({self.total_records} records so far)")
 
@@ -96,6 +97,7 @@ class WebDatasetUploader:
 
     def __init__(self, job_id: str):
         self.job_id = job_id
+        self.storage = get_storage_adapter()
         self.max_shard_size = settings.artifact_shard_size_mb * 1024 * 1024
         self.current_items: List[tuple[str, bytes]] = []
         self.current_size = 0
@@ -127,8 +129,8 @@ class WebDatasetUploader:
                 tar.addfile(info, io.BytesIO(data))
 
         tar_buffer.seek(0)
-        s3_client.upload_fileobj(tar_buffer, tar_key)
-        shard_uri = s3_client.get_object_url(tar_key)
+        self.storage.upload_fileobj(tar_buffer, tar_key)
+        shard_uri = self.storage.get_object_url(tar_key)
 
         index_payload = {
             "items": [
@@ -137,8 +139,8 @@ class WebDatasetUploader:
             ]
         }
         idx_buffer = io.BytesIO(json.dumps(index_payload, indent=2).encode("utf-8"))
-        s3_client.upload_fileobj(idx_buffer, idx_key)
-        index_uri = s3_client.get_object_url(idx_key)
+        self.storage.upload_fileobj(idx_buffer, idx_key)
+        index_uri = self.storage.get_object_url(idx_key)
 
         self.shards.append({
             "name": shard_name,
@@ -170,7 +172,8 @@ class WebDatasetUploader:
 
 
 def write_results_index(job_id: str, outputs: Sequence[Dict[str, Any]], metrics: Dict[str, Any]) -> str:
-    """Write a consolidated results index JSON to S3 and return its URI."""
+    """Write a consolidated results index JSON to storage and return its URI."""
+    storage = get_storage_adapter()
     payload = {
         "job_id": job_id,
         "outputs": list(outputs),
@@ -179,8 +182,8 @@ def write_results_index(job_id: str, outputs: Sequence[Dict[str, Any]], metrics:
 
     key = f"{settings.s3_results_prefix}/{job_id}/results.json"
     buffer = io.BytesIO(json.dumps(payload, indent=2).encode("utf-8"))
-    s3_client.upload_fileobj(buffer, key)
+    storage.upload_fileobj(buffer, key)
 
-    uri = s3_client.get_object_url(key)
+    uri = storage.get_object_url(key)
     logger.info(f"Wrote results index for job {job_id} to {uri}")
     return uri

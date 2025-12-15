@@ -13,20 +13,27 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
+    # Storage configuration
+    storage_config_path: Optional[str] = None  # Path to YAML storage config file
+
     # S3 Settings (for local S3-compatible storage like MinIO)
+    # Used when storage_config_path is not set (backward compatibility)
     s3_endpoint_url: str = "http://localhost:9000"  # Your local S3 endpoint
     s3_bucket: str = "stateful-microservice"
     s3_access_key: str = "minioadmin"  # Change via environment variable
     s3_secret_key: str = "minioadmin"  # Change via environment variable
     s3_use_ssl: bool = False  # Set to True if using HTTPS
 
-    # Storage paths (S3 prefixes)
+    # Storage paths (key prefixes - backend-agnostic)
     s3_datasets_prefix: str = "datasets"
     s3_results_prefix: str = "results"
 
-    # Multipart upload settings
+    # Multipart upload settings (S3-specific)
     multipart_part_size_mb: int = 5  # S3 minimum is 5MB
     multipart_url_ttl_seconds: int = 7200  # 2 hours
+
+    # Simple upload settings (for non-S3 backends)
+    simple_upload_max_size_mb: int = 100  # Maximum file size for simple uploads
 
     # Job settings
     max_concurrent_jobs: int = 3

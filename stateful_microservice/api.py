@@ -2,9 +2,10 @@
 
 from contextlib import asynccontextmanager
 import logging
+import uuid
 from dataclasses import dataclass
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 
 from .processor import BaseProcessor
 from .worker import create_worker_pool
@@ -18,9 +19,13 @@ from .models import (
     JobSubmitRequest,
     JobSubmitResponse,
     JobStatus,
+    StorageCapabilities,
+    IngestUploadResponse,
 )
 from .ingest import ingest_service
 from .jobs import job_store
+from .storage_factory import get_storage_adapter
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -125,23 +130,52 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
         )
 
     # ============================================================================
-    # Ingest Endpoints (Multipart Upload)
+    # Capabilities Endpoint
+    # ============================================================================
+
+    @app.get("/capabilities", response_model=StorageCapabilities)
+    async def get_capabilities():
+        """Get storage backend capabilities."""
+        storage = get_storage_adapter()
+
+        return StorageCapabilities(
+            supports_multipart_upload=storage.supports_multipart_upload(),
+            supports_presigned_urls=storage.supports_multipart_upload(),
+            backend_type=storage.get_backend_type(),
+            max_simple_upload_mb=(
+                settings.simple_upload_max_size_mb if not storage.supports_multipart_upload() else None
+            ),
+        )
+
+    # ============================================================================
+    # Ingest Endpoints
     # ============================================================================
 
     @app.post(
         "/ingest/start",
         response_model=IngestStartResponse,
-        responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+        responses={400: {"model": ErrorResponse}, 501: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     )
     async def ingest_start(request: IngestStartRequest):
         """Start ingestion for files (initiate multipart uploads)."""
         try:
+            # Check backend support
+            storage = get_storage_adapter()
+            if not storage.supports_multipart_upload():
+                raise HTTPException(
+                    status_code=501,
+                    detail="Multipart upload not supported by this backend. Use /ingest/upload instead."
+                )
+
             response = ingest_service.start_ingest(request)
             logger.info(
                 f"Started ingest for job {response.job_id} "
                 f"with {len(response.files)} file(s)"
             )
             return response
+        except NotImplementedError as e:
+            logger.warning(f"Multipart upload not supported: {e}")
+            raise HTTPException(status_code=501, detail=str(e))
         except Exception as e:
             logger.error(f"Failed to start ingest: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to start ingest: {str(e)}")
@@ -149,11 +183,19 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
     @app.post(
         "/ingest/complete",
         response_model=IngestCompleteResponse,
-        responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+        responses={400: {"model": ErrorResponse}, 501: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
     )
     async def ingest_complete(request: IngestCompleteRequest):
         """Complete multipart upload for a file."""
         try:
+            # Check backend support
+            storage = get_storage_adapter()
+            if not storage.supports_multipart_upload():
+                raise HTTPException(
+                    status_code=501,
+                    detail="Multipart upload not supported by this backend."
+                )
+
             response = ingest_service.complete_ingest(request)
             logger.info(
                 f"Completed upload for file {request.file_id}, job {request.job_id}"
@@ -162,9 +204,74 @@ def create_app(processor: BaseProcessor, config: ServiceConfig | None = None) ->
         except ValueError as e:
             logger.error(f"Validation error: {e}")
             raise HTTPException(status_code=400, detail=str(e))
+        except NotImplementedError as e:
+            logger.warning(f"Multipart upload not supported: {e}")
+            raise HTTPException(status_code=501, detail=str(e))
         except Exception as e:
             logger.error(f"Failed to complete ingest: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to complete ingest: {str(e)}")
+
+    @app.post(
+        "/ingest/upload",
+        response_model=IngestUploadResponse,
+        responses={413: {"model": ErrorResponse}, 501: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    )
+    async def ingest_upload(
+        file: UploadFile = File(...),
+        filename: str = Form(...),
+    ):
+        """
+        Upload a file using simple POST (for non-S3 backends).
+
+        Returns 501 if backend requires multipart upload.
+        Returns 413 if file exceeds maximum size.
+        """
+        try:
+            storage = get_storage_adapter()
+
+            if storage.supports_multipart_upload():
+                raise HTTPException(
+                    status_code=501,
+                    detail="This backend requires multipart upload. Use /ingest/start instead."
+                )
+
+            # Read file
+            content = await file.read()
+            file_size = len(content)
+
+            # Check size limit
+            max_size = settings.simple_upload_max_size_mb * 1024 * 1024
+            if file_size > max_size:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File size {file_size} bytes exceeds maximum {max_size} bytes"
+                )
+
+            # Generate job_id and key
+            job_id = str(uuid.uuid4())
+            key = f"{settings.s3_datasets_prefix}/{job_id}/{filename}"
+
+            # Upload
+            storage.put_bytes(key, content)
+
+            # Create job immediately (simple upload doesn't need completion step)
+            uri = storage.get_object_url(key)
+            manifest_data = {'files': [uri]}
+            job_store.create_job(manifest_data=manifest_data, job_id_override=job_id)
+
+            logger.info(f"Uploaded {filename} ({file_size} bytes) for job {job_id}")
+
+            return IngestUploadResponse(
+                job_id=job_id,
+                filename=filename,
+                key=key,
+                size_bytes=file_size,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to upload file: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
     # ============================================================================
     # Job Endpoints
